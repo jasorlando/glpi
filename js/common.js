@@ -33,7 +33,7 @@ var timeoutglobalvar;
 if (typeof(String.prototype.normalize) !== 'function') {
    $.ajax({
       type: "GET",
-      url: CFG_GLPI.root_doc + "/lib/unorm/unorm.js",
+      url: CFG_GLPI.root_doc + "/public/lib/unorm/unorm.js",
       dataType: "script",
       cache: true
    });
@@ -215,8 +215,8 @@ function checkAsCheckboxes(reference_id, container_id) {
  * Usage: $form.find('input[type="checkbox"]').shiftSelectable();
  */
 $.fn.shiftSelectable = function() {
-   var lastChecked,
-       $boxes = this;
+   var lastChecked;
+   var $boxes = this;
 
    // prevent html selection
    document.onkeydown = function(e) {
@@ -242,11 +242,11 @@ $.fn.shiftSelectable = function() {
 
       if (evt.shiftKey) {
          evt.preventDefault();
-         var start = $boxes.index(selected_checkbox),
-             end = $boxes.index(lastChecked);
+         var start = $boxes.index(selected_checkbox);
+         var end = $boxes.index(lastChecked);
          $boxes.slice(Math.min(start, end), Math.max(start, end) + 1)
-               .prop('checked', $(lastChecked).is(':checked'))
-               .trigger('change');
+            .prop('checked', $(lastChecked).is(':checked'))
+            .trigger('change');
       }
 
       lastChecked = selected_checkbox;
@@ -267,8 +267,8 @@ function showHideDiv(id, img_name, img_src_close, img_src_open) {
 
    if (img_name !== '') {
       var _awesome = img_src_close.match(/^fa-/);
-      var _deco,
-          _img;
+      var _deco;
+      var _img;
       if (!_awesome) {
          _img = $('img[name=' + img_name + ']');
          if (_elt.is(':visible')) {
@@ -383,9 +383,9 @@ function submitGetLink(target, fields) {
       myInput.setAttribute("value", fields[name]);
       myForm.appendChild(myInput);
    }
-    document.body.appendChild(myForm);
-    myForm.submit();
-    document.body.removeChild(myForm);
+   document.body.appendChild(myForm);
+   myForm.submit();
+   document.body.removeChild(myForm);
 }
 
 
@@ -434,13 +434,13 @@ function massiveUpdateCheckbox(criterion, reference) {
    if (typeof(value) == 'undefined') {
       return false;
    }
-    $(criterion).each(function() {
+   $(criterion).each(function() {
       if (typeof(reference) == 'undefined') {
          value = !$(this).prop('checked');
       }
-        $(this).prop('checked', value);
-    });
-    return true;
+      $(this).prop('checked', value);
+   });
+   return true;
 }
 
 /**
@@ -641,7 +641,41 @@ $(function() {
          submitparentForm($(this));
       }
    });
+
+   _initInputs();
+   /* global _initBookmarkPanel */
+   if (typeof _initBookmarkPanel === "function") {
+      _initBookmarkPanel();
+   }
+   if ($('#debugtabs').length) {
+      _initDebug();
+   }
+
+   _bind_check();
 });
+
+var _initDebug = function() {
+   /*$('#debugtabs').tabs({
+      collapsible: true
+   }).addClass( 'ui-tabs-vertical ui-helper-clearfix' );
+
+   $('<li class="close"><button id= "close_debug">close debug</button></li>')
+      .appendTo('#debugtabs ul');
+
+   $('#close_debug').button({
+      icons: {
+         primary: 'ui-icon-close'
+      },
+      text: false
+   }).click(function() {
+         $('#debugtabs').hide();
+   });*/
+
+   $('#see_debug,#hide_debug').click(function(e) {
+      e.preventDefault();
+      $('#debugtabs').toggleClass('hidden');
+   });
+};
 
 /**
  * Trigger submit event for a parent form of passed input dom element
@@ -814,10 +848,10 @@ var initMap = function(parent_elt, map_id, height) {
       $('#header_top, #c_menu, #c_ssmenu2, #footer, .search_page').each(function(){
          _oSize += _eltRealSize($(this));
       });
-      _oSize += parseFloat($('#page').css('padding-top').replace('px', ''));
-      _oSize += parseFloat($('#page').css('padding-bottom').replace('px', ''));
-      _oSize += parseFloat($('#page').css('margin-top').replace('px', ''));
-      _oSize += parseFloat($('#page').css('margin-bottom').replace('px', ''));
+      _oSize += parseFloat(parent_elt.css('padding-top').replace('px', ''));
+      _oSize += parseFloat(parent_elt.css('padding-bottom').replace('px', ''));
+      _oSize += parseFloat(parent_elt.css('margin-top').replace('px', ''));
+      _oSize += parseFloat(parent_elt.css('margin-bottom').replace('px', ''));
 
       var newHeight = Math.floor(wheight - _oSize);
       var minHeight = 300;
@@ -829,9 +863,11 @@ var initMap = function(parent_elt, map_id, height) {
 
    //add map, set a default arbitrary location
    parent_elt.append($('<div id="'+map_id+'" style="height: ' + height + '"></div>'));
+   /* global L */
    var map = L.map(map_id, {fullscreenControl: true}).setView([43.6112422, 3.8767337], 6);
 
    //setup tiles and © messages
+   /* global L */
    L.tileLayer('http://{s}.tile.osm.org/{z}/{x}/{y}.png', {
       attribution: '&copy; <a href=\'http://osm.org/copyright\'>OpenStreetMap</a> contributors'
    }).addTo(map);
@@ -839,14 +875,14 @@ var initMap = function(parent_elt, map_id, height) {
 };
 
 var showMapForLocation = function(elt) {
-   var _id = $(elt).data('fid');
+   var _id = elt.data('fid');
    var _items_id = $('#' + _id).val();
 
    if (_items_id == 0) {
       return;
    }
 
-   _dialog = $('<div id="location_map_dialog"/>');
+   var _dialog = $('<div id="location_map_dialog"/>');
    _dialog.appendTo('body').dialog({
       close: function() {
          $(this).dialog('destroy').remove();
@@ -875,9 +911,11 @@ var showMapForLocation = function(elt) {
          });
       } else {
          var _markers = [];
-         _marker = L.marker([data.lat, data.lng]);
+         /* global L */
+         var _marker = L.marker([data.lat, data.lng]);
          _markers.push(_marker);
 
+         /* global L */
          var _group = L.featureGroup(_markers).addTo(map_elt);
          map_elt.fitBounds(
             _group.getBounds(), {
@@ -939,12 +977,11 @@ var templateResult = function(result) {
       if (text.indexOf('>') !== -1 || text.indexOf('<') !== -1) {
          // escape text, if it contains chevrons (can already be escaped prior to this point :/)
          text = jQuery.fn.select2.defaults.defaults.escapeMarkup(result.text);
-      };
+      }
 
       if (!result.id) {
          return text;
       }
-
       var _term = query.term || '';
       var markup = markMatch(text, _term);
 
@@ -1004,4 +1041,123 @@ var getTextWithoutDiacriticalMarks = function (text) {
    // The U+0300 -> U+036F range corresponds to diacritical chars.
    // They are removed to keep only chars without their diacritical mark.
    return text.replace(/[\u0300-\u036f]/g, '');
-}
+};
+
+var _initInputs = function(prefix) {
+   if (typeof(prefix) == 'undefined') {
+      prefix = '';
+   }
+   $(prefix + '.autogrow').autogrow();
+   $(prefix + '.btn_location').on('click', function(e){
+      e.preventDefault();
+      showMapForLocation($(this));
+   });
+   $(prefix + '[data-toggle="tooltip"]').tooltip();
+   $(prefix + '.datepicker').datepicker({
+      /*altField: '#hiddendate".$p['rand']."',*/
+      altField: $(this).attr('name').replace(/_picker/, ''),
+      altFormat: 'yy-mm-dd',
+      firstDay: 1,
+      showOtherMonths: true,
+      selectOtherMonths: true,
+      showButtonPanel: true,
+      changeMonth: true,
+      changeYear: true,
+      showOn: 'button',
+      showWeek: true,
+      buttonText: '<i class=\'fa fa-calendar\'></i>',
+
+      /*if (!$p['canedit']) {
+         $js .= ",disabled: true";
+      }
+
+      if (!empty($p['min'])) {
+         $js .= ",minDate: '".self::convDate($p['min'])."'";
+      }
+
+      if (!empty($p['max'])) {
+         $js .= ",maxDate: '".self::convDate($p['max'])."'";
+      }
+
+      if (!empty($p['yearrange'])) {
+         $js .= ",yearRange: '". $p['yearrange'] ."'";
+      }*/
+
+      /*switch ($_SESSION['glpidate_format']) {
+         case 1 :
+            $p['showyear'] ? $format='dd-mm-yy' : $format='dd-mm';
+            break;
+
+         case 2 :
+            $p['showyear'] ? $format='mm-dd-yy' : $format='mm-dd';
+            break;
+
+         default :
+            $p['showyear'] ? $format='yy-mm-dd' : $format='mm-dd';
+      }
+      $js .= ",dateFormat: '".$format."'";
+
+      $js .= "}).next('.ui-datepicker-trigger').addClass('pointer');";
+      $js .= "});";*/
+   });
+};
+
+var createModalWindow = function (url, params) {
+   var _params = Object.assign({
+      'width': 800,
+      'height': 400,
+      'modal': true,
+      'open': false,
+      'container': undefined,
+      'title': '',
+      'extraparams': {},
+      'display': true,
+      'js_modal_fields': '',
+   }, params);
+
+   var _elt = (typeof _params.container != 'undefined') ? $(params.container) : $('<div />');
+   _elt.dialog({
+      width: _params.width,
+      autoOpen: _params.open.toString(),
+      height: _params.height,
+      modal: _params.modal.toString(),
+      title: _params.title,
+      open: function (){
+         var _fields = _params.extraparams;
+         /*if (!empty($param['js_modal_fields'])) {
+            $out .= $param['js_modal_fields']."\n";
+         }*/
+         $(this).load(url, _fields);
+      }
+   });
+   return _elt;
+};
+
+var _bind_check = function() {
+   var _is_checked = true;
+   $('.checkall').click(function() {
+      var _this = $(this);
+      var boxelt = _this.data('boxelt') ? _this.data('boxelt') : '_ids';
+
+      _this.closest('table').find(':checkbox[name="' + boxelt + '[]"]').each(function() {
+         this.checked = _is_checked;
+      });
+      _is_checked = !_is_checked;
+      return false;
+   });
+};
+
+var _initFlashMessage = function() {
+   $('.flash').each(function() {
+      var _this = $(this);
+      var _bottom = _this.css('bottom').replace('px', '');
+      var _previous = _this.prevAll('.flash');
+
+      var _movepos = 0;
+      _previous.each(function() {
+         var _prev = $(this);
+         _movepos += _prev.outerHeight();
+      });
+      _this.css('bottom', parseFloat(_bottom) + _movepos + 'px');
+   });
+};

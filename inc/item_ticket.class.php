@@ -145,8 +145,8 @@ class Item_Ticket extends CommonDBRelation{
                      // Process Business Rules
                      $rules = new RuleTicketCollection($ticket->fields['entities_id']);
 
-                     $ticket->fields = $rules->processAllRules(Toolbox::stripslashes_deep($ticket->fields),
-                                                Toolbox::stripslashes_deep($ticket->fields),
+                     $ticket->fields = $rules->processAllRules($ticket->fields,
+                                                $ticket->fields,
                                                 ['recursive' => true]);
 
                      unset($ticket->fields['items_locations']);
@@ -522,6 +522,7 @@ class Item_Ticket extends CommonDBRelation{
 
 
    function getTabNameForItem(CommonGLPI $item, $withtemplate = 0) {
+      global $IS_TWIG;
 
       if (!$withtemplate) {
          $nb = 0;
@@ -529,7 +530,7 @@ class Item_Ticket extends CommonDBRelation{
             case 'Ticket' :
                if (($_SESSION["glpiactiveprofile"]["helpdesk_hardware"] != 0)
                    && (count($_SESSION["glpiactiveprofile"]["helpdesk_item_type"]) > 0)) {
-                  if ($_SESSION['glpishow_count_on_tabs']) {
+                  if ($_SESSION['glpishow_count_on_tabs'] && !$IS_TWIG) {
                      //$nb = self::countForMainItem($item);
                      $nb = countElementsInTable('glpi_items_tickets',
                                                 ['tickets_id' => $item->getID(),
@@ -542,6 +543,20 @@ class Item_Ticket extends CommonDBRelation{
       return '';
    }
 
+
+   protected function countForTab($item, $tab, $deleted = 0, $template = 0) {
+      return countElementsInTable(
+         'glpi_items_tickets',
+         [
+            'AND' => [
+               'tickets_id' => $item->getID()
+            ],
+            [
+               'itemtype' => $_SESSION["glpiactiveprofile"]["helpdesk_item_type"]
+            ]
+         ]
+      );
+   }
 
    static function displayTabContentForItem(CommonGLPI $item, $tabnum = 1, $withtemplate = 0) {
 
@@ -842,7 +857,8 @@ class Item_Ticket extends CommonDBRelation{
                      $already_add[$itemtype] = [];
                   }
                   $criteria = [
-                     'SELECT DISTINCT' => "$itemtable.*",
+                     'SELECT'          => "$itemtable.*",
+                     'DISTINCT'        => true,
                      'FROM'            => 'glpi_computers_items',
                      'LEFT JOIN'       => [
                         $itemtable  => [
@@ -894,11 +910,12 @@ class Item_Ticket extends CommonDBRelation{
             // Software
             if (in_array('Software', $_SESSION["glpiactiveprofile"]["helpdesk_item_type"])) {
                $iterator = $DB->request([
-                  'SELECT DISTINCT' => 'glpi_softwareversions.name AS version',
-                  'FIELDS'          => [
+                  'SELECT'          => [
+                     'glpi_softwareversions.name AS version',
                      'glpi_softwares.name AS name',
                      'glpi_softwares.id'
                   ],
+                  'DISTINCT'        => true,
                   'FROM'            => 'glpi_computers_softwareversions',
                   'LEFT JOIN'       => [
                      'glpi_softwareversions'  => [
@@ -1012,7 +1029,6 @@ class Item_Ticket extends CommonDBRelation{
 
       $union = new \QueryUnion();
       foreach ($itemtypes as $type) {
-         //TODO: migrate when iterator usuports UNION
          $table = getTableForItemType($type);
          $union->addQuery([
             'SELECT' => [
@@ -1331,7 +1347,7 @@ class Item_Ticket extends CommonDBRelation{
          // Do not display quotes
          //TRANS : %s is the description of the added item
          Session::addMessageAfterRedirect(sprintf(__('%1$s: %2$s'), __('Item successfully added'),
-                                                  stripslashes($display)));
+                                                  $display));
 
       }
    }

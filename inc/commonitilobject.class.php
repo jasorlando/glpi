@@ -519,6 +519,7 @@ abstract class CommonITILObject extends CommonDBTM {
     * @return integer
    **/
    private function countActiveObjectsFor(CommonITILActor $linkclass, $id, $role) {
+      global $DB;
 
       $itemtable = $this->getTable();
       $itemfk    = $this->getForeignKeyField();
@@ -527,7 +528,7 @@ abstract class CommonITILObject extends CommonDBTM {
 
       return countElementsInTable(
          [$itemtable, $linktable], [
-            "$linktable.$itemfk"    => new \QueryExpression(DBmysql::quoteName("$itemtable.id")),
+            "$linktable.$itemfk"    => new \QueryExpression($DB->quoteName("$itemtable.id")),
             "$linktable.$field"     => $id,
             "$linktable.type"       => $role,
             "$itemtable.is_deleted" => 0,
@@ -1363,12 +1364,7 @@ abstract class CommonITILObject extends CommonDBTM {
          $input['name'] = Html::clean(Html::entity_decode_deep($input['content']));
          $input["name"] = preg_replace('/\\r\\n/', ' ', $input['name']);
          $input["name"] = preg_replace('/\\n/', ' ', $input['name']);
-         // For mailcollector
-         $input["name"] = preg_replace('/\\\\r\\\\n/', ' ', $input['name']);
-         $input["name"] = preg_replace('/\\\\n/', ' ', $input['name']);
-         $input['name'] = Toolbox::stripslashes_deep($input['name']);
          $input["name"] = Toolbox::substr($input['name'], 0, 70);
-         $input['name'] = Toolbox::addslashes_deep($input['name']);
       }
 
       // Set default dropdown
@@ -4755,12 +4751,13 @@ abstract class CommonITILObject extends CommonDBTM {
 
       $ctable = $this->getTable();
       $criteria = [
-         'SELECT DISTINCT' => 'glpi_users.id AS users_id',
-         'FIELDS'          => [
+         'SELECT'          => [
+            'glpi_users.id AS users_id',
             'glpi_users.name AS name',
             'glpi_users.realname AS realname',
             'glpi_users.firstname AS firstname'
          ],
+         'DISTINCT' => true,
          'FROM'            => $ctable,
          'LEFT JOIN'       => [
             $linktable  => [
@@ -4831,12 +4828,13 @@ abstract class CommonITILObject extends CommonDBTM {
 
       $ctable = $this->getTable();
       $criteria = [
-         'SELECT DISTINCT' => 'glpi_users.id AS user_id',
-         'FIELDS'          => [
+         'SELECT'          => [
+            'glpi_users.id AS user_id',
             'glpi_users.name AS name',
             'glpi_users.realname AS realname',
             'glpi_users.firstname AS firstname'
          ],
+         'DISTINCT'        => true,
          'FROM'            => $ctable,
          'LEFT JOIN'       => [
             'glpi_users'   => [
@@ -4899,10 +4897,11 @@ abstract class CommonITILObject extends CommonDBTM {
 
       $ctable = $this->getTable();
       $criteria = [
-         'SELECT DISTINCT' => 'glpi_groups.id',
-         'FIELDS'          => [
+         'SELECT' => [
+            'glpi_groups.id',
             'glpi_groups.completename'
          ],
+         'DISTINCT'        => true,
          'FROM'            => $ctable,
          'LEFT JOIN'       => [
             $linktable  => [
@@ -4978,9 +4977,10 @@ abstract class CommonITILObject extends CommonDBTM {
 
       $ctable = $this->getTable();
       $criteria = [
-         'SELECT DISTINCT' => "glpi_users.$field",
+         'SELECT'          => "glpi_users.$field",
+         'DISTINCT'        => true,
          'FROM'            => $ctable,
-         'INNER JOIN'       => [
+         'INNER JOIN'      => [
             $linktable  => [
                'ON' => [
                   $linktable  => $this->getForeignKeyField(),
@@ -5044,7 +5044,8 @@ abstract class CommonITILObject extends CommonDBTM {
 
       $ctable = $this->getTable();
       $criteria = [
-         'SELECT DISTINCT' => 'priority',
+         'SELECT'          => 'priority',
+         'DISTINCT'        => true,
          'FROM'            => $ctable,
          'WHERE'           => [
             "$ctable.is_deleted" => 0
@@ -5086,7 +5087,8 @@ abstract class CommonITILObject extends CommonDBTM {
 
       $ctable = $this->getTable();
       $criteria = [
-         'SELECT DISTINCT' => 'urgency',
+         'SELECT'          => 'urgency',
+         'DISTINCT'        => true,
          'FROM'            => $ctable,
          'WHERE'           => [
             "$ctable.is_deleted" => 0
@@ -5129,7 +5131,8 @@ abstract class CommonITILObject extends CommonDBTM {
 
       $ctable = $this->getTable();
       $criteria = [
-         'SELECT DISTINCT' => 'impact',
+         'SELECT'          => 'impact',
+         'DISTINCT'        => true,
          'FROM'            => $ctable,
          'WHERE'           => [
             "$ctable.is_deleted" => 0
@@ -5172,7 +5175,8 @@ abstract class CommonITILObject extends CommonDBTM {
 
       $ctable = $this->getTable();
       $criteria = [
-         'SELECT DISTINCT' => 'requesttypes_id',
+         'SELECT'          => 'requesttypes_id',
+         'DISTINCT'        => true,
          'FROM'            => $ctable,
          'WHERE'           => [
             "$ctable.is_deleted" => 0
@@ -5214,7 +5218,8 @@ abstract class CommonITILObject extends CommonDBTM {
 
       $ctable = $this->getTable();
       $criteria = [
-         'SELECT DISTINCT' => 'solutiontypes_id',
+         'SELECT'          => 'solutiontypes_id',
+         'DISTINCT'        => true,
          'FROM'            => ITILSolution::getTable(),
          'INNER JOIN'      => [
             $ctable   => [
@@ -5268,12 +5273,13 @@ abstract class CommonITILObject extends CommonDBTM {
 
       $ctable = $this->getTable();
       $criteria = [
-         'SELECT DISTINCT' => 'glpi_users.id AS users_id',
-         'FIELDS'          => [
+         'SELECT'          => [
+            'glpi_users.id AS users_id',
             'glpi_users.name AS name',
             'glpi_users.realname AS realname',
             'glpi_users.firstname AS firstname'
          ],
+         'DISTINCT'        => true,
          'FROM'            => $ctable,
          'LEFT JOIN'       => [
             $linktable  => [
@@ -5340,12 +5346,13 @@ abstract class CommonITILObject extends CommonDBTM {
 
       $ctable = $this->getTable();
       $criteria = [
-         'SELECT DISTINCT' => 'glpi_users.id AS users_id',
-         'FIELDS'          => [
+         'SELECT'          => [
+            'glpi_users.id AS users_id',
             'glpi_users.name AS name',
             'glpi_users.realname AS realname',
             'glpi_users.firstname AS firstname'
          ],
+         'DISTINCT' => true,
          'FROM'            => $ctable,
          'LEFT JOIN'       => [
             $linktable  => [
@@ -5430,10 +5437,11 @@ abstract class CommonITILObject extends CommonDBTM {
 
       $ctable = $this->getTable();
       $criteria = [
-         'SELECT DISTINCT' => 'glpi_suppliers.id AS suppliers_id_assign',
-         'FIELDS'          => [
+         'SELECT'          => [
+            'glpi_suppliers.id AS suppliers_id_assign',
             'glpi_suppliers.name AS name'
          ],
+         'DISTINCT'        => true,
          'FROM'            => $ctable,
          'LEFT JOIN'       => [
             $linktable        => [
@@ -5497,10 +5505,11 @@ abstract class CommonITILObject extends CommonDBTM {
 
       $ctable = $this->getTable();
       $criteria = [
-         'SELECT DISTINCT' => 'glpi_groups.id',
-         'FIELDS'          => [
+         'SELECT' => [
+            'glpi_groups.id',
             'glpi_groups.completename'
          ],
+         'DISTINCT'        => true,
          'FROM'            => $ctable,
          'LEFT JOIN'       => [
             $linktable  => [
@@ -5959,7 +5968,6 @@ abstract class CommonITILObject extends CommonDBTM {
 
       return $pos;
    }
-
 
    /**
     * Gets submit button with a status dropdown
@@ -6932,8 +6940,11 @@ abstract class CommonITILObject extends CommonDBTM {
 
       $union = new \QueryUnion([$subquery1, $subquery2], false, 'allactors');
       $iterator = $DB->request([
-         'SELECT DISTINCT' => 'users_id',
-         'FIELDS'          => ['type'],
+         'SELECT'          => [
+            'users_id',
+            'type'
+         ],
+         'DISTINCT'        => true,
          'FROM'            => $union
       ]);
 
@@ -6975,7 +6986,7 @@ abstract class CommonITILObject extends CommonDBTM {
    }
 
    /**
-    * Number of tasks of the objec
+    * Number of tasks of the object
     *
     * @param boolean $with_private true : all followups / false : only public ones (default 1)
     *
@@ -7003,4 +7014,285 @@ abstract class CommonITILObject extends CommonDBTM {
       return (int)$row['cpt'];
    }
 
+   /**
+    * Get common request criteria
+    *
+    * @since 10.0.0
+    *
+    * @return array
+    */
+   public static function getCommonCriteria() {
+      $fk = self::getForeignKeyField();
+      $gtable = str_replace('glpi_', 'glpi_groups_', static::getTable());
+      $itable = str_replace('glpi_', 'glpi_items_', static::getTable());
+      if (self::getType() == 'Change') {
+         $gtable = 'glpi_changes_groups';
+         $itable = 'glpi_changes_items';
+      }
+      $utable = static::getTable() . '_users';
+      $stable = static::getTable() . '_suppliers';
+      if (self::getType() == 'Ticket') {
+         $stable = 'glpi_suppliers_tickets';
+      }
+
+      $table = self::getTable();
+      $criteria = [
+         'SELECT'          => [
+            "$table.*",
+            'glpi_itilcategories.completename AS catname'
+         ],
+         'DISTINCT'        => true,
+         'FROM'            => $table,
+         'LEFT JOIN'       => [
+            $gtable  => [
+               'ON' => [
+                  $table   => 'id',
+                  $gtable  => $fk
+               ]
+            ],
+            $utable  => [
+               'ON' => [
+                  $table   => 'id',
+                  $utable  => $fk
+               ]
+            ],
+            $stable  => [
+               'ON' => [
+                  $table   => 'id',
+                  $stable  => $fk
+               ]
+            ],
+            'glpi_itilcategories'      => [
+               'ON' => [
+                  $table                  => 'itilcategories_id',
+                  'glpi_itilcategories'   => 'id'
+               ]
+            ],
+            $itable  => [
+               'ON' => [
+                  $table   => 'id',
+                  $itable  => $fk
+               ]
+            ]
+         ],
+         'ORDERBY'            => "$table.date_mod DESC"
+      ];
+
+      if (count($_SESSION["glpiactiveentities"]) > 1) {
+         $criteria['LEFT JOIN']['glpi_entities'] = [
+            'ON' => [
+               'glpi_entities'   => 'id',
+               $table            => 'entities_id'
+            ]
+         ];
+
+         $criteria['SELECT'] = array_merge(
+            $criteria['SELECT'], [
+               'glpi_entities.completename AS entityname',
+               "$table.entities_id AS entityID"
+            ]
+         );
+      }
+
+      return $criteria;
+   }
+
+   /**
+    * Form fields configuration and mapping.
+    *
+    * Array order will define fields display order.
+    *
+    * Missing fields from database will be automatically displayed.
+    * If you want to avoid this;
+    * @see getFormHiddenFields and/or @see getFormFieldsToDrop
+    *
+    * @since 10.0.0
+    *
+    * @return array
+    */
+   protected function getFormFields() {
+      $fields = [
+         'date'         => [
+            'label'  => __('Opening date'),
+            'fieldset'  => 'head'
+         ],
+         'status'        => [
+            'label'  => __('Status'),
+            'fieldset'  => 'head'
+         ],
+         'requesttypes_id' => [
+            'label'     => __('Request source'),
+            'fieldset'  => 'head'
+         ],
+         'urgency'      => [
+            'label'  => __('Urgency'),
+            'fieldset'  => 'head'
+         ],
+         'itilcategories_id' => [
+            'label' => __('Category'),
+            'fieldset'  => 'head'
+         ],
+         'impact'    => [
+            'label' => __('Impact'),
+            'fieldset'  => 'head'
+         ],
+         'priority'    => [
+            'label' => __('Priority'),
+            'fieldset'  => 'head'
+         ],
+         'name'        => [
+            'label' => __('Title'),
+            'fieldset'  => 'main'
+         ],
+         'content' => [
+             'label'    => __('Description'),
+             'fieldset' => 'main',
+             'type'     => 'textarea'
+         ],
+         'time_to_own'     => [
+            'label'     => __('Time to own'),
+            'fieldset'  => 'sla'
+         ],
+         'time_to_resolve' => [
+            'label'     => __('Time to resolve'),
+            'fieldset'  => 'sla'
+         ],
+         'internal_time_to_own' => [
+            'label'     => __('Internal time to own'),
+            'fieldset'  => 'sla'
+         ],
+         'internal_time_to_resolve' => [
+            'label'     => __('Internal time to resolve'),
+            'fieldset'  => 'sla'
+         ]
+      ];
+      $fields = $this->cleanFormFields($fields);
+      return $fields;
+   }
+
+   /**
+    * Get field to be dropped building form
+    *
+    * @since 10.0.0
+    *
+    * @param boolean $add Add or update
+    *
+    * @return array
+    */
+   protected function getFormFieldsToDrop($add = false) {
+       $fields = array_merge(
+         parent::getFormFieldsToDrop($add), [
+            'impactcontent',
+            'causecontent', //problems
+            'symptomcontent', //problems
+            'actiontime',
+            'begin_waiting_date',
+            'waiting_duration',
+            'close_delay_stat',
+            'solve_delay_stat',
+            'users_id_lastupdater',
+            'controlistcontent', //changes
+            'rolloutplancontent', //changes
+            'backoutplancontent', //changes
+            'checklistcontent', //changes
+            'global_validation',
+            'validation_percent',
+            'takeintoaccount_delay_stat' //tickets
+         ]
+      );
+      if ($add === true) {
+         $fields = array_merge(
+            $fields, [
+               'solvedate',
+               'closedate',
+               'users_id_recipient'
+            ]
+         );
+      }
+      return $fields;
+   }
+
+   /**
+    * Get hidden fields building form
+    *
+    * @since 10.0.0
+    *
+    * @param boolean $add Add or update
+    *
+    * @return array
+    */
+   protected function getFormHiddenFields($add = false) {
+       $fields = array_merge(
+         parent::getFormHiddenFields($add), [
+            'slas_ttr_id',
+            'slas_tto_id',
+            'ttr_slalevels_id',
+            'ttr_olalevels_id',
+            'sla_waiting_duration',
+            'ola_waiting_duration',
+            'olas_tto_id',
+            'olas_ttr_id'
+         ]
+      );
+      if ($add === true) {
+         $fields = array_merge(
+            $fields, [
+               'locations_id'
+            ]
+         );
+      }
+      return $fields;
+
+   }
+
+   /**
+    * Get form
+    * Specific for itil objects, which uses several parts
+    *
+    * @since 10.0.0
+    *
+    * @param boolean $add Add or edit
+    *
+    * @return array
+    */
+   public function getForm($add = false) {
+      $form = parent::getForm($add);
+      $elements = $form['elements'];
+
+      $parts = [
+         'head'      => [
+            'title'     => __('Informations'),
+            'show'      => true,
+            'elements'  => []
+         ],
+         'sla'       => [
+            'title'     => __('SLA/OLA'),
+            'show'      => false,
+            'elements'  => []
+         ],
+         'actors'    => [
+            'title'     => __('Actors'),
+            'show'      => false,
+            'elements'  => ['guess']
+         ],
+         'specific'  => [
+            'title'     => __('Specific'),
+            'show'      => false,
+            'elements'  => []
+         ],
+         'main'      => [
+            'title'     => __('Details'),
+            'show'      => true,
+            'elements'  => []
+         ]
+      ];
+
+      foreach ($elements as $element) {
+         $fieldset = isset($element['fieldset']) ? $element['fieldset'] : 'main';
+         $parts[$fieldset]['elements'][] = $element;
+      }
+
+      $form['parts'] = $parts;
+      return $form;
+   }
 }

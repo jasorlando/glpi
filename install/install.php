@@ -35,6 +35,10 @@ define('GLPI_ROOT', realpath('..'));
 include_once (GLPI_ROOT . "/inc/based_config.php");
 include_once (GLPI_ROOT . "/inc/db.function.php");
 
+// Load kernel and expose container in global var
+global $CONTAINER;
+$CONTAINER = (new Glpi\Kernel())->getContainer();
+
 Config::detectRootDoc();
 
 $GLPI = new GLPI();
@@ -48,7 +52,7 @@ function header_html($etape) {
    header("Content-Type: text/html; charset=UTF-8");
 
    echo "<!DOCTYPE html'>";
-   echo "<html lang='fr'>";
+   echo "<html lang='fr' class='legacy'>";
     echo "<head>";
     echo "<meta charset='utf-8'>";
    echo "<meta http-equiv='Content-Script-Type' content='text/javascript'> ";
@@ -64,15 +68,16 @@ function header_html($etape) {
    ");
 
    // LIBS
-   echo Html::script("lib/jquery/js/jquery.js");
-   echo Html::script('lib/jquery/js/jquery-ui-1.10.4.custom.js');
-   echo Html::script("lib/jqueryplugins/select2/js/select2.js");
+   echo Html::script("public/lib/jquery/jquery.js");
+   echo Html::script('public/lib/jquery-migrate/jquery-migrate.js');
+   echo Html::script('public/lib/jquery-ui-dist/jquery-ui.js');
+   echo Html::script("public/lib/select2/js/select2.full.js");
    echo Html::script("lib/fuzzy/fuzzy-min.js");
    echo Html::script("js/common.js");
 
     // CSS
-   echo Html::css('lib/jquery/css/smoothness/jquery-ui-1.10.4.custom.css');
-   echo Html::css("lib/jqueryplugins/select2/css/select2.css");
+   echo Html::css('public/lib/jquery-ui-dist/jquery-ui.css');
+   echo Html::css("public/lib/select2/css/select2.css");
    echo Html::css("css/style_install.css");
    echo "</head>";
    echo "<body>";
@@ -239,20 +244,36 @@ function step3($host, $user, $password, $update) {
    error_reporting(16);
    echo "<h3>".__('Test of the connection at the database')."</h3>";
 
-   //Check if the port is in url
    $hostport = explode(":", $host);
+   $driver   = 'mysql';
    if (count($hostport) < 2) {
-      $link = new mysqli($hostport[0], $user, $password);
+      // Host
+      $dsn = "$driver:host=$host";
+   } else if (intval($hostport[1])>0) {
+       // Host:port
+       $dsn = "$driver:host={$hostport[0]}:{$hostport[1]}";
    } else {
-      $link = new mysqli($hostport[0], $user, $password, '', $hostport[1]);
+       // :Socket
+       $dsn = "$driver:unix_socket={$hostport[1]}";
    }
 
-   if ($link->connect_error
+   $connected = false;
+   try {
+      $link = new PDO(
+         "$dsn;charset=utf8",
+         $user,
+         $password
+      );
+      $connected = true;
+   } catch (PDOException $e) {
+      echo "<p>".__("Can't connect to the database")."\n <br>".
+           sprintf(__('The server answered: %s'), $e->getMessage())."</p>";
+   }
+   $link->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+   if (!$connected
        || empty($host)
        || empty($user)) {
-      echo "<p>".__("Can't connect to the database")."\n <br>".
-           sprintf(__('The server answered: %s'), $link->connect_error)."</p>";
-
       if (empty($host)
           || empty($user)) {
          echo "<p>".__('The server or/and user field is empty')."</p>";
@@ -273,7 +294,7 @@ function step3($host, $user, $password, $update) {
 
       //get database raw version
       $DB_ver = $link->query("SELECT version()");
-      $row = $DB_ver->fetch_array();
+      $row = $DB_ver->fetch(\PDO::FETCH_NUM);
       echo "<p class='center'>";
       $checkdb = Config::displayCheckDbEngine(true, $row[0]);
       echo "</p>";
@@ -286,7 +307,7 @@ function step3($host, $user, $password, $update) {
          echo "<form action='install.php' method='post'>";
 
          if ($DB_list = $link->query("SHOW DATABASES")) {
-            while ($row = $DB_list->fetch_array()) {
+            while ($row = $DB_list->fetch(\PDO::FETCH_ASSOC)) {
                if (!in_array($row['Database'], ["information_schema",
                                                      "mysql",
                                                      "performance_schema"] )) {
@@ -313,7 +334,6 @@ function step3($host, $user, $password, $update) {
          echo "<input type='hidden' name='install' value='Etape_3'>";
          echo "<p class='submit'><input type='submit' name='submit' class='submit' value='".
                __('Continue')."'></p>";
-         $link->close();
          Html::closeForm();
 
       } else if ($update == "yes") {
@@ -321,7 +341,7 @@ function step3($host, $user, $password, $update) {
          echo "<form action='install.php' method='post'>";
 
          $DB_list = $link->query("SHOW DATABASES");
-         while ($row = $DB_list->fetch_array()) {
+         while ($row = $DB_list->fetch(\PDO::FETCH_NUM)) {
             echo "<p>";
             echo "<label class='radio'>";
             echo "<input type='radio' name='databasename' value='". $row['Database']."'>";
@@ -334,7 +354,6 @@ function step3($host, $user, $password, $update) {
          echo "<input type='hidden' name='install' value='update_1'>";
          echo "<p class='submit'><input type='submit' name='submit' class='submit' value='".
                 __('Continue')."'></p>";
-         $link->close();
          Html::closeForm();
       }
 
@@ -375,83 +394,99 @@ function step4 ($databasename, $newdatabasename) {
       Html::closeForm();
    }
 
-   //Check if the port is in url
    $hostport = explode(":", $host);
+   $driver   = 'mysql';
    if (count($hostport) < 2) {
-      $link = new mysqli($hostport[0], $user, $password);
+      // Host
+      $dsn = "$driver:host=$host";
+   } else if (intval($hostport[1])>0) {
+       // Host:port
+       $dsn = "$driver:host={$hostport[0]}:{$hostport[1]}";
    } else {
-      $link = new mysqli($hostport[0], $user, $password, '', $hostport[1]);
+       // :Socket
+       $dsn = "$driver:unix_socket={$hostport[1]}";
    }
 
-   $databasename    = $link->real_escape_string($databasename);
-   $newdatabasename = $link->real_escape_string($newdatabasename);
+   $connected = false;
+   try {
+      $link = new PDO(
+         "$dsn;charset=utf8",
+         $user,
+         $password
+      );
+      $connected = true;
+   } catch (PDOException $e) {
+      echo "<p>".__("Can't connect to the database")."\n <br>".
+           sprintf(__('The server answered: %s'), $e->getMessage())."</p>";
+   }
+   $link->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
    if (!empty($databasename)) { // use db already created
-      $DB_selected = $link->select_db($databasename);
-
-      if (!$DB_selected) {
+      try {
+         $link = new PDO(
+            "$dsn;db=$databasename;charset=utf8",
+            $user,
+            $password
+         );
+         $connected = true;
+      } catch (PDOException $e) {
          echo __('Impossible to use the database:');
-         echo "<br>".sprintf(__('The server answered: %s'), $link->error);
+         echo "<br>".sprintf(__('The server answered: %s'), $e->getMessage());
          prev_form($host, $user, $password);
-
-      } else {
-         if (DBConnection::createMainConfig($host, $user, $password, $databasename)) {
-            Toolbox::createSchema($_SESSION["glpilanguage"]);
-            echo "<p>".__('OK - database was initialized')."</p>";
-
-            next_form();
-
-         } else { // can't create config_db file
-            echo "<p>".__('Impossible to write the database setup file')."</p>";
-            prev_form($host, $user, $password);
-         }
       }
 
+      if (DBConnection::createMainConfig('mysql', $host, $user, $password, $databasename)) {
+         Toolbox::createSchema($_SESSION["glpilanguage"]);
+         echo "<p>".__('OK - database was initialized')."</p>";
+
+         setCacheUniqId();
+
+         next_form();
+      } else { // can't create db.yaml file
+         echo "<p>".__('Impossible to write the database setup file')."</p>";
+         prev_form($host, $user, $password);
+      }
    } else if (!empty($newdatabasename)) { // create new db
-      // Try to connect
-      if ($link->select_db($newdatabasename)) {
+
+      $TempDB = \Glpi\DatabaseFactory::create();
+
+      // try to create the DB
+      if ($link->query("CREATE DATABASE IF NOT EXISTS ".$TempDB->quoteName($newdatabasename))) {
          echo "<p>".__('Database created')."</p>";
+      } else { // can't create database
+         echo __('Error in creating database!');
+         echo "<br>".sprintf(__('The server answered: %s'), $e->getMessage());
+         prev_form($host, $user, $password);
+      }
 
-         if (DBConnection::createMainConfig($host, $user, $password, $newdatabasename)) {
-            Toolbox::createSchema($_SESSION["glpilanguage"]);
-            echo "<p>".__('OK - database was initialized')."</p>";
-            next_form();
-
-         } else { // can't create config_db file
+      try {
+         // Try to connect
+         $link = new PDO(
+            "$dsn;db=$newdatabasename;charset=utf8",
+            $user,
+            $password
+         );
+         if (!DBConnection::createMainConfig('mysql', $host, $user, $password, $newdatabasename)) {
             echo "<p>".__('Impossible to write the database setup file')."</p>";
             prev_form($host, $user, $password);
          }
 
-      } else { // try to create the DB
-         if ($link->query("CREATE DATABASE IF NOT EXISTS `".$newdatabasename."`")) {
-            echo "<p>".__('Database created')."</p>";
+         Toolbox::createSchema($_SESSION["glpilanguage"]);
+         echo "<p>".__('OK - database was initialized')."</p>";
 
-            if ($link->select_db($newdatabasename)
-                && DBConnection::createMainConfig($host, $user, $password, $newdatabasename)) {
+         setCacheUniqId();
 
-               Toolbox::createSchema($_SESSION["glpilanguage"]);
-               echo "<p>".__('OK - database was initialized')."</p>";
-               next_form();
-
-            } else { // can't create config_db file
-               echo "<p>".__('Impossible to write the database setup file')."</p>";
-               prev_form($host, $user, $password);
-            }
-
-         } else { // can't create database
-            echo __('Error in creating database!');
-            echo "<br>".sprintf(__('The server answered: %s'), $link->error);
-            prev_form($host, $user, $password);
-         }
+         next_form();
+      } catch (PDOException $e) {
+         echo __('Error in creating database!');
+         echo "<br>".sprintf(__('The server answered: %s'), $e->getMessage());
+         prev_form($host, $user, $password);
       }
-
    } else { // no db selected
       echo "<p>".__("You didn't select a database!"). "</p>";
       //prev_form();
       prev_form($host, $user, $password);
    }
-
-   $link->close();
 
 }
 
@@ -461,8 +496,12 @@ function step6() {
    echo "<h3>".__('Collect data')."</h3>";
 
    include_once(GLPI_ROOT . "/inc/dbmysql.class.php");
-   include_once(GLPI_CONFIG_DIR . "/config_db.php");
-   $DB = new DB();
+   try {
+      $DB = \Glpi\DatabaseFactory::create();
+   } catch (\Exception $e) {
+      //empty catch
+      $success = true; //for CS
+   }
 
    echo "<form action='install.php' method='post'>";
    echo "<input type='hidden' name='install' value='Etape_5'>";
@@ -496,9 +535,7 @@ function step7() {
 function step8() {
    global $CFG_GLPI;
 
-   include_once(GLPI_ROOT . "/inc/dbmysql.class.php");
-   include_once(GLPI_CONFIG_DIR . "/config_db.php");
-   $DB = new DB();
+   $DB = \Glpi\DatabaseFactory::create();
 
    if (isset($_POST['send_stats'])) {
       //user has accepted to send telemetry infos; activate cronjob
@@ -512,7 +549,7 @@ function step8() {
    $url_base = str_replace("/install/install.php", "", $_SERVER['HTTP_REFERER']);
    $DB->update(
       'glpi_configs',
-      ['value' => $DB->escape($url_base)], [
+      ['value' => $url_base], [
          'context'   => 'core',
          'name'      => 'url_base'
       ]
@@ -521,7 +558,7 @@ function step8() {
    $url_base_api = "$url_base/apirest.php/";
    $DB->update(
       'glpi_configs',
-      ['value' => $DB->escape($url_base_api)], [
+      ['value' => $url_base_api], [
          'context'   => 'core',
          'name'      => 'url_base_api'
       ]
@@ -549,7 +586,7 @@ function update1($DBname) {
       $from_install = true;
       include_once(GLPI_ROOT ."/install/update.php");
 
-   } else { // can't create config_db file
+   } else { // can't create db.yaml file
       echo __("Can't create the database connection file, please verify file permissions.");
       echo "<h3>".__('Do you want to continue?')."</h3>";
       echo "<form action='install.php' method='post'>";
@@ -585,10 +622,19 @@ Session::loadLanguage();
 **/
 function checkConfigFile() {
 
-   if (file_exists(GLPI_CONFIG_DIR . "/config_db.php")) {
+   if (file_exists(GLPI_CONFIG_DIR . "/db.yaml") || file_exists(GLPI_CONFIG_DIR . "/config_db.php")) {
       Html::redirect($CFG_GLPI['root_doc'] ."/index.php");
       die();
    }
+}
+
+function setCacheUniqId() {
+   $localConfigManager = new \Glpi\Application\LocalConfigurationManager(
+      GLPI_CONFIG_DIR,
+      new \Symfony\Component\PropertyAccess\PropertyAccessor(),
+      new \Symfony\Component\Yaml\Yaml()
+   );
+   $localConfigManager->setParameterValue('[cache_uniq_id]', uniqid());
 }
 
 if (!isset($_POST["install"])) {
@@ -606,9 +652,7 @@ if (!isset($_POST["install"])) {
 
    // DB clean
    if (isset($_POST["db_pass"])) {
-      $_POST["db_pass"] = stripslashes($_POST["db_pass"]);
       $_POST["db_pass"] = rawurldecode($_POST["db_pass"]);
-      $_POST["db_pass"] = stripslashes($_POST["db_pass"]);
    }
 
    switch ($_POST["install"]) {

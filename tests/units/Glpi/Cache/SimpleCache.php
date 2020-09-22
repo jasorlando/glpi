@@ -34,7 +34,7 @@ namespace tests\units\Glpi\Cache;
 
 use org\bovigo\vfs\vfsStream;
 
-/* Test for inc/cache/simplecache.class.php */
+/* Test for src/Glpi/Cache/SimpleCache.php */
 
 class SimpleCache extends \GLPITestCase {
 

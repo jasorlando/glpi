@@ -3,7 +3,39 @@
 The present file will list all changes made to the project; according to the
 [Keep a Changelog](http://keepachangelog.com/) project.
 
-## [9.4.1] unreleased
+## [10.0.0] unreleased
+
+### Changed
+
+- Update process is now limited to GLPI 0.80 and above. See upgrade documentation for details.
+- /!\ Database queries now rely on PDO; and global sanitize has been dropped.
+- /!\ `DB` methods which uses to return a mysqli_statement now return a PDOStatement.
+- /!\ `DB` methods signatures significally changed due to usage of PDO.
+
+### Removed
+
+- Drop support of PHP 5.6.
+- Deprecated `scripts/ldap_mass_sync.php` has been removed in favor of `glpi:ldap:synchronize_users` command available using `bin/console`
+
+### API changes
+
+#### Changes
+- Added `DB::truncate()` to replace raw SQL queries
+- `DB::fieldExists()` does not check table existence anymore.
+
+#### Deprecated
+
+- Deprecate raw SQL queries in `DBmysql::request()`
+- Deprecate `getCommonSelect()` and `getCommonLeftJoin()` in `Change`, `Problem` and `Ticket` classes
+- Deprecate `DB::query()` and `DB::queryOrDie()` to disallow executing raw queries (iterator querying must be used)
+- Deprecate raw SQL condition in `Migration::addField()`
+- Deprecate 'SELECT DISTINCT' and 'DISTINCT FIELDS' criteria in `DBmysqlIterator::buildQuery()`
+
+#### Removed
+
+- All methods that were marked as deprecated in 9.3.x
+- Drop `Plugin::hasBeenInit()`.
+
 
 ### API changes
 
@@ -50,6 +82,7 @@ The following methods have been deprecated:
 - `scripts/ldap_mass_sync.php` has been replaced by `glpi:ldap:synchronize_users` command available using `bin/console`
 - `scripts/innodb_migration.php` has been replaced by `glpi:migration:myisam_to_innodb` command available using `bin/console`
 - `scripts/unlock_tasks.php` has been replaced by `glpi:task:unlock` command available using `bin/console`
+- `scripts/migrations/racks_plugin.php` has been replaced by `glpi:migration:racks_plugin_to_core` command available using `bin/console`
 
 ### API changes
 

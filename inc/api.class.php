@@ -87,7 +87,7 @@ abstract class API extends CommonGLPI {
     * Constructor
     *
     * @var array $CFG_GLPI
-    * @var DBmysql $DB
+    * @var \Glpi\AbstractDatabase $DB
     *
     * @return void
     */
@@ -115,7 +115,7 @@ abstract class API extends CommonGLPI {
 
       // check if api is enabled
       if (!$CFG_GLPI['enable_api']) {
-         $this->returnError(__("API disabled"), "", "", false);
+         $this->returnError(__("API disabled"), 403, "", false);
          exit;
       }
 
@@ -614,7 +614,7 @@ abstract class API extends CommonGLPI {
           && $itemtype == "Computer") {
          $fields['_softwares'] = [];
          if (!Software::canView()) {
-            $fields['_softwares'] = self::arrayRightError();
+            $fields['_softwares'] = $this->arrayRightError();
          } else {
             $soft_iterator = $DB->request([
                'SELECT'    => [
@@ -967,17 +967,14 @@ abstract class API extends CommonGLPI {
          if (!Ticket::canView()) {
             $fields['_tickets'] = self::arrayRightError();
          } else {
-            $query = "SELECT ".Ticket::getCommonSelect()."
-                      FROM `glpi_tickets` ".
-                      Ticket::getCommonLeftJoin()."
-                      WHERE `glpi_items_tickets`.`items_id` = '$id'
-                             AND `glpi_items_tickets`.`itemtype` = '$itemtype' ".
-                            getEntitiesRestrictRequest("AND", "glpi_tickets")."
-                      ORDER BY `glpi_tickets`.`date_mod` DESC";
-            if ($result = $DB->query($query)) {
-               while ($data = $DB->fetch_assoc($result)) {
-                  $fields['_tickets'][] = $data;
-               }
+            $criteria = Ticket::getCommonCriteria();
+            $criteria['WHERE'] = [
+               'glpi_items_tickets.items_id' => $id,
+               'glpi_items_tickets.itemtype' => $itemtype
+            ] + getEntitiesRestrictCriteria(Ticket::getTable());
+            $iterator = $DB->request($criteria);
+            while ($data = $iterator->next()) {
+               $fields['_tickets'][] = $data;
             }
          }
       }
@@ -989,19 +986,14 @@ abstract class API extends CommonGLPI {
          if (!Problem::canView()) {
             $fields['_problems'] = self::arrayRightError();
          } else {
-            $query = "SELECT ".Problem::getCommonSelect()."
-                            FROM `glpi_problems`
-                            LEFT JOIN `glpi_items_problems`
-                              ON (`glpi_problems`.`id` = `glpi_items_problems`.`problems_id`) ".
-                            Problem::getCommonLeftJoin()."
-                            WHERE `items_id` = '$id'
-                                  AND `itemtype` = '$itemtype' ".
-                                  getEntitiesRestrictRequest("AND", "glpi_problems")."
-                            ORDER BY `glpi_problems`.`date_mod` DESC";
-            if ($result = $DB->query($query)) {
-               while ($data = $DB->fetch_assoc($result)) {
-                  $fields['_problems'][] = $data;
-               }
+            $criteria = Problem::getCommonCriteria();
+            $criteria['WHERE'] = [
+               'glpi_items_problems.items_id' => $id,
+               'glpi_items_problems.itemtype' => $itemtype
+            ] + getEntitiesRestrictCriteria(Problem::getTable());
+            $iterator = $DB->request($criteria);
+            while ($data = $iterator->next()) {
+               $fields['_problems'][] = $data;
             }
          }
       }
@@ -1013,19 +1005,14 @@ abstract class API extends CommonGLPI {
          if (!Change::canView()) {
             $fields['_changes'] = self::arrayRightError();
          } else {
-            $query = "SELECT ".Change::getCommonSelect()."
-                            FROM `glpi_changes`
-                            LEFT JOIN `glpi_changes_items`
-                              ON (`glpi_changes`.`id` = `glpi_changes_items`.`problems_id`) ".
-                            Change::getCommonLeftJoin()."
-                            WHERE `items_id` = '$id'
-                                  AND `itemtype` = '$itemtype' ".
-                                  getEntitiesRestrictRequest("AND", "glpi_changes")."
-                            ORDER BY `glpi_changes`.`date_mod` DESC";
-            if ($result = $DB->query($query)) {
-               while ($data = $DB->fetch_assoc($result)) {
-                  $fields['_changes'][] = $data;
-               }
+            $criteria = Change::getCommonCriteria();
+            $criteria['WHERE'] = [
+               'glpi_changes_items.items_id' => $id,
+               'glpi_changes_items.itemtype' => $itemtype
+            ] + getEntitiesRestrictCriteria(Change::getTable());
+            $iterator = $DB->request($criteria);
+            while ($data = $iterator->next()) {
+               $fields['_changes'][] = $data;
             }
          }
       }
@@ -1119,6 +1106,7 @@ abstract class API extends CommonGLPI {
       global $DB;
 
       $this->initEndpoint();
+      $search = new \Search(new $itemtype(), $params);
 
       // default params
       $default = ['expand_dropdowns' => false,
@@ -1165,8 +1153,8 @@ abstract class API extends CommonGLPI {
 
       //specific case for restriction
       $already_linked_table = [];
-      $join = Search::addDefaultJoin($itemtype, $table, $already_linked_table);
-      $where = Search::addDefaultWhere($itemtype);
+      $join = $search->addDefaultJoin($itemtype, $table, $already_linked_table);
+      $where = $search->addDefaultWhere($itemtype);
       if ($where == '') {
          $where = "1=1 ";
       }
@@ -1236,8 +1224,8 @@ abstract class API extends CommonGLPI {
          // make text search
          foreach ($params['searchText']  as $filter_field => $filter_value) {
             if (!empty($filter_value)) {
-               $search = Search::makeTextSearch($filter_value);
-               $where.= " AND (`$table`.`$filter_field` $search)";
+               $search_value = $search->makeTextSearch($filter_value);
+               $where.= " AND (`$table`.`$filter_field` $search_value)";
             }
          }
       }
@@ -1268,7 +1256,7 @@ abstract class API extends CommonGLPI {
                 ORDER BY ".$params['sort']." ".$params['order']."
                 LIMIT ".$params['start'].", ".$params['list_limit'];
       if ($result = $DB->query($query)) {
-         while ($data = $DB->fetch_assoc($result)) {
+         while ($data = $result->fetch(\PDO::FETCH_ASSOC)) {
             $found[] = $data;
          }
       }
@@ -1417,8 +1405,8 @@ abstract class API extends CommonGLPI {
     *
     * It permits to identify a searchoption with an named index instead a numeric one
     *
-    * @param CommonDBTM $itemtype current itemtype called on ressource listSearchOption
-    * @param array      $option   current option to generate an unique id
+    * @param string $itemtype current itemtype called on ressource listSearchOption
+    * @param array  $option   current option to generate an unique id
     *
     * @return string the unique id
     */
@@ -1582,7 +1570,8 @@ abstract class API extends CommonGLPI {
       $_SESSION['glpi_use_mode'] = Session::DEBUG_MODE;
 
       // call Core Search method
-      $rawdata = Search::getDatas($itemtype, $params, $params['forcedisplay']);
+      $search = new \Search(new $itemtype(), $params);
+      $rawdata = $search->getData();
 
       // probably a sql error
       if (!isset($rawdata['data']) || count($rawdata['data']) === 0) {
@@ -1621,12 +1610,6 @@ abstract class API extends CommonGLPI {
          $raw = $row['raw'];
          $id = $raw['id'];
 
-         // keep row itemtype for all asset
-         if ($itemtype == 'AllAssets') {
-            $current_id       = $raw['id'];
-            $current_itemtype = $raw['TYPE'];
-         }
-
          // retrive value (and manage multiple values)
          $clean_values = [];
          foreach ($rawdata['data']['cols'] as $col) {
@@ -1653,8 +1636,8 @@ abstract class API extends CommonGLPI {
 
          // if all asset, provide type in returned data
          if ($itemtype == 'AllAssets') {
-            $current_line['id']       = $current_id;
-            $current_line['itemtype'] = $current_itemtype;
+            $current_line['id']       = $raw['id'];
+            $current_line['itemtype'] = $raw['TYPE'];
          }
 
          // append to final array
@@ -1726,7 +1709,7 @@ abstract class API extends CommonGLPI {
          $failed       = 0;
          $index        = 0;
          foreach ($input as $object) {
-            $object      = self::inputObjectToArray($object);
+            $object      = $this->inputObjectToArray($object);
             $current_res = [];
 
             //check rights
@@ -1745,7 +1728,7 @@ abstract class API extends CommonGLPI {
                $object["_add"] = true;
 
                //add current item
-               $object = Toolbox::sanitize($object);
+               $object = Toolbox::clean_cross_side_scripting_deep($object);
                $new_id = $item->add($object);
                if ($new_id === false) {
                   $failed++;
@@ -1801,7 +1784,7 @@ abstract class API extends CommonGLPI {
 
       if (is_array($input)) {
          foreach ($input as &$sub_input) {
-            $sub_input = self::inputObjectToArray($sub_input);
+            $sub_input = $this->inputObjectToArray($sub_input);
          }
       }
 
@@ -1842,8 +1825,6 @@ abstract class API extends CommonGLPI {
             if (isset($object->id)) {
                if (!$item->getFromDB($object->id)) {
                   $failed++;
-                  $current_res = [$object->id => false,
-                                  'message'   => __("Item not found")];
                   continue;
                }
 
@@ -1865,7 +1846,7 @@ abstract class API extends CommonGLPI {
                   }
 
                   //update item
-                  $object = Toolbox::sanitize((array)$object);
+                  $object = Toolbox::clean_cross_side_scripting_deep((array)$object);
                   $update_return = $item->update($object);
                   if ($update_return === false) {
                      $failed++;
@@ -2023,7 +2004,7 @@ abstract class API extends CommonGLPI {
 
       $user = new User();
       if (!isset($params['password_forget_token'])) {
-         $email = Toolbox::addslashes_deep($params['email']);
+         $email = $params['email'];
          try {
             $user->forgetPassword($email);
          } catch (ForgetPasswordException $e) {
@@ -2035,10 +2016,10 @@ abstract class API extends CommonGLPI {
       } else {
          $password = isset($params['password']) ? $params['password'] : '';
          $input = [
-            'email'                    => Toolbox::addslashes_deep($params['email']),
-            'password_forget_token'    => Toolbox::addslashes_deep($params['password_forget_token']),
-            'password'                 => Toolbox::addslashes_deep($password),
-            'password2'                => Toolbox::addslashes_deep($password),
+            'email'                    => $params['email'],
+            'password_forget_token'    => $params['password_forget_token'],
+            'password'                 => $password,
+            'password2'                => $password,
          ];
          try {
             $user->updateForgottenPassword($input);
@@ -2075,9 +2056,9 @@ abstract class API extends CommonGLPI {
       }
       $this->checkAppToken();
       $this->logEndpointUsage($endpoint);
-      self::checkSessionToken();
+      $this->checkSessionToken();
       if ($unlock_session) {
-         self::unlockSessionIfPossible();
+         $this->unlockSessionIfPossible();
       }
    }
 
@@ -2271,9 +2252,15 @@ abstract class API extends CommonGLPI {
     * @return void
     */
    public function inlineDocumentation($file) {
-      self::header(true, __("API Documentation"));
-      echo Html::css("lib/prism/prism.css");
-      echo Html::script("lib/prism/prism.js");
+        //this should be served from a slim route
+      $this->header(true, __("API Documentation"));
+      echo Html::css("public/lib/prismjs/themes/prism-coy.css");
+      echo Html::script("public/lib/prismjs/components/prism-core.js");
+      echo Html::script("public/lib/prismjs/components/prism-apacheconf.js");
+      echo Html::script("public/lib/prismjs/components/prism-bash.js");
+      echo Html::script("public/lib/prismjs/components/prism-clike.js");
+      echo Html::script("public/lib/prismjs/components/prism-json.js");
+      echo Html::script("public/lib/prismjs/components/prism-nginx.js");
 
       echo "<div class='documentation'>";
       $documentation = file_get_contents(GLPI_ROOT.'/'.$file);

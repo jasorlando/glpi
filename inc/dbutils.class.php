@@ -326,7 +326,8 @@ final class DbUtils {
       }
       $condition['COUNT'] = 'cpt';
 
-      $row = $DB->request($table, $condition)->next();
+      $iterator = $DB->request($table, $condition);
+      $row = $iterator->next();
       return ($row ? (int)$row['cpt'] : 0);
    }
 
@@ -347,7 +348,8 @@ final class DbUtils {
          }
       }
       $condition['COUNT'] = 'cpt';
-      $condition['SELECT DISTINCT'] = $field;
+      $condition['FIELDS'] = $field;
+      $condition['DISTINCT'] = true;
 
       return $this->countElementsInTable($table, $condition);
    }
@@ -458,10 +460,10 @@ final class DbUtils {
          return false;
       }
 
-      $result = $DB->query("SHOW INDEX FROM `$table`");
+      $result = $DB->rawQuery("SHOW INDEX FROM `$table`");
 
       if ($result && $DB->numrows($result)) {
-         while ($data = $DB->fetch_assoc($result)) {
+         while ($data = $result->fetch()) {
             if ($data["Key_name"] == $field) {
                return true;
             }
@@ -671,17 +673,16 @@ final class DbUtils {
     * @return array of IDs of the sons
     */
    public function getSonsOf($table, $IDf) {
-      global $DB, $GLPI_CACHE;
+      global $DB;
 
+      $appCache = Toolbox::getAppCache();
       $ckey = $table . '_sons_cache_' . $IDf;
       $sons = false;
 
-      if (Toolbox::useCache()) {
-         if ($GLPI_CACHE->has($ckey)) {
-            $sons = $GLPI_CACHE->get($ckey);
-            if ($sons !== null) {
-               return $sons;
-            }
+      if ($appCache->has($ckey)) {
+         $sons = $appCache->get($ckey);
+         if ($sons !== null) {
+            return $sons;
          }
       }
 
@@ -762,9 +763,7 @@ final class DbUtils {
          }
       }
 
-      if (Toolbox::useCache()) {
-         $GLPI_CACHE->set($ckey, $sons);
-      }
+      $appCache->set($ckey, $sons);
 
       return $sons;
    }
@@ -778,8 +777,9 @@ final class DbUtils {
     * @return array of IDs of the ancestors
     */
    public function getAncestorsOf($table, $items_id) {
-      global $DB, $GLPI_CACHE;
+      global $DB;
 
+      $appCache = Toolbox::getAppCache();
       $ckey = $table . '_ancestors_cache_';
       if (is_array($items_id)) {
          $ckey .= md5(implode('|', $items_id));
@@ -788,12 +788,10 @@ final class DbUtils {
       }
       $ancestors = [];
 
-      if (Toolbox::useCache()) {
-         if ($GLPI_CACHE->has($ckey)) {
-            $ancestors = $GLPI_CACHE->get($ckey);
-            if ($ancestors !== null) {
-               return $ancestors;
-            }
+      if ($appCache->has($ckey)) {
+         $ancestors = $appCache->get($ckey);
+         if ($ancestors !== null) {
+            return $ancestors;
          }
       }
 
@@ -877,9 +875,7 @@ final class DbUtils {
          }
       }
 
-      if (Toolbox::useCache()) {
-         $GLPI_CACHE->set($ckey, $ancestors);
-      }
+      $appCache->set($ckey, $ancestors);
 
       return $ancestors;
    }
@@ -1338,197 +1334,13 @@ final class DbUtils {
          list($name, $level) = $this->getTreeValueName($table, $data['id']);
          $DB->update(
             $table, [
-               'completename' => addslashes($name),
+               'completename' => $name,
                'level'        => $level
             ], [
                'id' => $data['id']
             ]
          );
       }
-   }
-
-
-   /**
-    * Get the ID of the next Item
-    *
-    * @deprecated 9.4
-    *
-    * @param string  $table         table to search next item
-    * @param integer $ID            current ID
-    * @param string  $condition     condition to add to the search (default ='')
-    * @param string  $nextprev_item field used to sort (default ='name')
-    *
-    * @return integer the next ID, -1 if not exist
-    */
-   public function getNextItem($table, $ID, $condition = "", $nextprev_item = "name") {
-      global $DB;
-      Toolbox::deprecated();
-
-      if (empty($nextprev_item)) {
-         return false;
-      }
-
-      $itemtype = $this->getItemTypeForTable($table);
-      $item     = new $itemtype();
-      $search   = $ID;
-
-      if ($nextprev_item != "id") {
-         $iterator = $DB->request([
-            'SELECT' => $nextprev_item,
-            'FROM'   => $table,
-            'WHERE'  => ['id' => $ID]
-         ]);
-
-         if (count($iterator) > 0) {
-            $search = addslashes($iterator->next()[$nextprev_item]);
-         } else {
-            $nextprev_item = "id";
-         }
-      }
-
-      $LEFTJOIN = '';
-      if ($table == "glpi_users") {
-         $LEFTJOIN = " LEFT JOIN `glpi_profiles_users`
-                              ON (`glpi_users`.`id` = `glpi_profiles_users`.`users_id`)";
-      }
-
-      $query = "SELECT `$table`.`id`
-               FROM `$table`
-               $LEFTJOIN
-               WHERE (`$table`.`$nextprev_item` > '$search' ";
-
-      // Same name case
-      if ($nextprev_item != "id") {
-         $query .= " OR (`$table`.`".$nextprev_item."` = '$search'
-                        AND `$table`.`id` > '$ID') ";
-      }
-      $query .= ") ";
-
-      if (!empty($condition)) {
-         $query .= " AND $condition ";
-      }
-
-      if ($item->maybeDeleted()) {
-         $query .= " AND `$table`.`is_deleted` = 0 ";
-      }
-
-      if ($item->maybeTemplate()) {
-         $query .= " AND `$table`.`is_template` = 0 ";
-      }
-
-      // Restrict to active entities
-      if ($table == "glpi_entities") {
-         $query .= $this->getEntitiesRestrictRequest("AND", $table, '', '', true);
-
-      } else if ($item->isEntityAssign()) {
-         $query .= $this->getEntitiesRestrictRequest("AND", $table, '', '', $item->maybeRecursive());
-
-      } else if ($table == "glpi_users") {
-         $query .= $this->getEntitiesRestrictRequest("AND", "glpi_profiles_users");
-      }
-
-      $query .= " ORDER BY `$table`.`$nextprev_item` ASC,
-                           `$table`.`id` ASC";
-
-      $result = $DB->query($query);
-      if ($result
-         && ($DB->numrows($result) > 0)) {
-         return $DB->result($result, 0, "id");
-      }
-
-      return -1;
-   }
-
-
-   /**
-    * Get the ID of the previous Item
-    *
-    * @deprecated 9.4
-    *
-    * @param string  $table         table to search next item
-    * @param integer $ID            current ID
-    * @param string  $condition     condition to add to the search (default ='')
-    * @param string  $nextprev_item field used to sort (default ='name')
-    *
-    * @return integer the previous ID, -1 if not exist
-    */
-   public function getPreviousItem($table, $ID, $condition = "", $nextprev_item = "name") {
-      global $DB;
-      Toolbox::deprecated();
-
-      if (empty($nextprev_item)) {
-         return false;
-      }
-
-      $itemtype = $this->getItemTypeForTable($table);
-      $item     = new $itemtype();
-      $search   = $ID;
-
-      if ($nextprev_item != "id") {
-         $iterator = $DB->request([
-            'SELECT' => $nextprev_item,
-            'FROM'   => $table,
-            'WHERE'  => ['id' => $ID]
-         ]);
-
-         if (count($iterator) > 0) {
-            $search = addslashes($iterator->next()[$nextprev_item]);
-         } else {
-            $nextprev_item = "id";
-         }
-      }
-
-      $LEFTJOIN = '';
-      if ($table == "glpi_users") {
-         $LEFTJOIN = " LEFT JOIN `glpi_profiles_users`
-                              ON (`glpi_users`.`id` = `glpi_profiles_users`.`users_id`)";
-      }
-
-      $query = "SELECT `$table`.`id`
-               FROM `$table`
-               $LEFTJOIN
-               WHERE (`$table`.`$nextprev_item` < '$search' ";
-
-      // Same name case
-      if ($nextprev_item != "id") {
-         $query .= " OR (`$table`.`$nextprev_item` = '$search'
-                        AND `$table`.`id` < '$ID') ";
-      }
-      $query .= ") ";
-
-      if (!empty($condition)) {
-         $query .= " AND $condition ";
-      }
-
-      if ($item->maybeDeleted()) {
-         $query .= "AND `$table`.`is_deleted` = 0";
-      }
-
-      if ($item->maybeTemplate()) {
-         $query .= "AND `$table`.`is_template` = 0";
-      }
-
-      // Restrict to active entities
-      if ($table == "glpi_entities") {
-         $query .= $this->getEntitiesRestrictRequest("AND", $table, '', '', true);
-
-      } else if ($item->isEntityAssign()) {
-         $query .= $this->getEntitiesRestrictRequest("AND", $table, '', '', $item->maybeRecursive());
-
-      } else if ($table == "glpi_users") {
-         $query .= $this->getEntitiesRestrictRequest("AND", "glpi_profiles_users");
-      }
-
-      $query .= " ORDER BY `$table`.`$nextprev_item` DESC,
-                           `$table`.`id` DESC";
-
-      $result = $DB->query($query);
-      if ($result
-         && ($DB->numrows($result) > 0)) {
-         return $DB->result($result, 0, "id");
-      }
-
-      return -1;
    }
 
 
@@ -1873,32 +1685,6 @@ final class DbUtils {
       }
    }
 
-   /**
-    * Add dates for request
-    *
-    * @Deprecated 9.4
-    *
-    * @param string $field table.field to request
-    * @param string $begin begin date
-    * @param string $end   end date
-    *
-    * @return string SQL
-    */
-   public function getDateRequest($field, $begin, $end) {
-      Toolbox::deprecated('Use getDateCriteria');
-      $sql = '';
-      if (!empty($begin)) {
-         $sql .= " $field >= '$begin' ";
-      }
-
-      if (!empty($end)) {
-         if (!empty($sql)) {
-            $sql .= " AND ";
-         }
-         $sql .= " $field <= ADDDATE('$end' , INTERVAL 1 DAY) ";
-      }
-      return " (".$sql.") ";
-   }
 
    /**
     * Get dates conditions to use in 'WHERE' clause

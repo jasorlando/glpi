@@ -215,16 +215,16 @@ class Document extends CommonDBTM {
             $name = $item->getNameID();
          }
          //TRANS: %1$s is Document, %2$s is item type, %3$s is item name
-         $input["name"] = addslashes(Html::resume_text(sprintf(__('%1$s: %2$s'),
-                                                               __('Document'),
-                                                       sprintf(__('%1$s - %2$s'), $typename, $name)),
-                                                       200));
+         $input["name"] = Html::resume_text(
+            sprintf(__('%1$s: %2$s'), __('Document'), sprintf(__('%1$s - %2$s'), $typename, $name)),
+            200
+         );
          $create_from_item = true;
       }
 
       $upload_ok = false;
       if (isset($input["_filename"]) && !(empty($input["_filename"]) == 1)) {
-         $upload_ok = $this->moveDocument($input, stripslashes(array_shift($input["_filename"])));
+         $upload_ok = $this->moveDocument($input, array_shift($input["_filename"]));
       } else if (isset($input["upload_file"]) && !empty($input["upload_file"])) {
          // Move doc from upload dir
          $upload_ok = $this->moveUploadedDocument($input, $input["upload_file"]);
@@ -325,7 +325,7 @@ class Document extends CommonDBTM {
 
       if (isset($input['current_filepath'])) {
          if (isset($input["_filename"]) && !empty($input["_filename"]) == 1) {
-            $this->moveDocument($input, stripslashes(array_shift($input["_filename"])));
+            $this->moveDocument($input, array_shift($input["_filename"]));
          } else if (isset($input["upload_file"]) && !empty($input["upload_file"])) {
             // Move doc from upload dir
             $this->moveUploadedDocument($input, $input["upload_file"]);
@@ -607,7 +607,7 @@ class Document extends CommonDBTM {
    /**
     * Check if file of current instance can be viewed from a Reminder.
     *
-    * @global DBmysql $DB
+    * @global \Glpi\AbstractDatabase $DB
     * @return boolean
     *
     * @TODO Use DBmysqlIterator instead of raw SQL
@@ -669,7 +669,7 @@ class Document extends CommonDBTM {
     * Check if file of current instance can be viewed from a KnowbaseItem.
     *
     * @global array $CFG_GLPI
-    * @global DBmysql $DB
+    * @global \Glpi\AbstractDatabase $DB
     * @return boolean
     */
    private function canViewFileFromKnowbaseItem() {
@@ -752,7 +752,7 @@ class Document extends CommonDBTM {
    /**
     * Check if file of current instance can be viewed from a CommonITILObject.
     *
-    * @global DBmysql $DB
+    * @global \Glpi\AbstractDatabase $DB
     * @param string  $itemtype
     * @param integer $items_id
     * @return boolean
@@ -839,7 +839,7 @@ class Document extends CommonDBTM {
     * @return string
     */
    private function getSelfUrlRegexPattern() {
-      return 'document\\\.send\\\.php\\\?docid=' . $this->fields['id'] . '[^\\\d]+';
+      return 'document\.send\.php\?docid=' . $this->fields['id'] . '[^\d]+';
    }
 
    static function rawSearchOptionsToAdd($itemtype = null) {
@@ -1115,7 +1115,7 @@ class Document extends CommonDBTM {
       }
 
       // For display
-      $input['filename'] = addslashes($filename);
+      $input['filename'] = $filename;
       // Storage path
       $input['filepath'] = $new_path;
       // Checksum
@@ -1202,7 +1202,7 @@ class Document extends CommonDBTM {
       }
 
       // For display
-      $input['filename'] = addslashes($filename);
+      $input['filename'] = $filename;
       // Storage path
       $input['filepath'] = $new_path;
       // Checksum
@@ -1275,7 +1275,7 @@ class Document extends CommonDBTM {
       if (self::renameForce($FILEDESC['tmp_name'], GLPI_DOC_DIR."/".$path)) {
          Session::addMessageAfterRedirect(__('The file is valid. Upload is successful.'));
          // For display
-         $input['filename'] = addslashes($FILEDESC['name']);
+         $input['filename'] = $FILEDESC['name'];
          // Storage path
          $input['filepath'] = $path;
          // Checksum
@@ -1451,7 +1451,8 @@ class Document extends CommonDBTM {
          'FROM'   => 'glpi_documentcategories',
          'WHERE'  => [
             'id' => new QuerySubQuery([
-               'SELECT DISTINCT' => 'documentcategories_id',
+               'SELECT'          => 'documentcategories_id',
+               'DISTINCT'        => true,
                'FROM'            => 'glpi_documents',
                'WHERE'           => $subwhere
             ])

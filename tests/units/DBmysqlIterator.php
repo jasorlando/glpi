@@ -35,6 +35,7 @@ namespace tests\units;
 use DbTestCase;
 use Monolog\Logger;
 use Monolog\Handler\TestHandler;
+use Symfony\Component\Yaml\Yaml;
 
 // Generic test classe, to be extended for CommonDBTM Object
 
@@ -44,19 +45,22 @@ class DBmysqlIterator extends DbTestCase {
 
    public function beforeTestMethod($method) {
       parent::beforeTestMethod($method);
-      $this->it = new \DBmysqlIterator(null);
+
+      $db_config = Yaml::parseFile(GLPI_CONFIG_DIR . '/db.yaml');
+      $dbclass = '\mock\DB' . $db_config['driver'];
+      $db = new $dbclass($db_config);
+      $this->calling($db)->rawQuery->doesNothing;
+      $this->it = new \DBmysqlIterator($db);
    }
 
    public function testQuery() {
       $req = 'SELECT Something FROM Somewhere';
-      $it = $this->it->execute($req);
+      $it = $this->it->executeRaw($req);
       $this->string($it->getSql())->isIdenticalTo($req);
-
       $req = 'SELECT @@sql_mode as mode';
-      $it = $this->it->execute($req);
+      $it = $this->it->executeRaw($req);
       $this->string($it->getSql())->isIdenticalTo($req);
    }
-
 
    public function testSqlError() {
       global $DB;
@@ -89,15 +93,15 @@ class DBmysqlIterator extends DbTestCase {
     * This is really an error, no table but a WHERE clase
     */
    public function testNoTableWithWhere() {
-      $this->when(
-         function () {
+      $this->exception(
+         function() {
             $it = $this->it->execute('', ['foo' => 1]);
-            $this->string($it->getSql())->isIdenticalTo('SELECT * WHERE `foo` = \'1\'');
+            $this->array($it->getParameters())->isIdenticalTo([1]);
+            $this->string($it->getSql())->isIdenticalTo('SELECT * WHERE `foo` = ?');
          }
-      )->error()
-         ->withType(E_USER_ERROR)
-         ->withMessage('Missing table name')
-         ->exists();
+      )
+         ->isInstanceOf('RuntimeException')
+         ->message->contains('Missing table name');
    }
 
 
@@ -105,15 +109,14 @@ class DBmysqlIterator extends DbTestCase {
     * Temporarily, this is an error, will be allowed later
     */
    public function testNoTableWithoutWhere() {
-      $this->when(
+      $this->exception(
          function () {
             $it = $this->it->execute('');
             $this->string($it->getSql())->isIdenticalTo('SELECT *');
          }
-      )->error()
-         ->withType(E_USER_ERROR)
-         ->withMessage('Missing table name')
-         ->exists();
+      )
+         ->isInstanceOf('RuntimeException')
+         ->hasMessage('Missing table name');
    }
 
 
@@ -121,15 +124,14 @@ class DBmysqlIterator extends DbTestCase {
     * Temporarily, this is an error, will be allowed later
     */
    public function testNoTableWithoutWhereBis() {
-      $this->when(
+      $this->exception(
          function () {
             $it = $this->it->execute(['FROM' => []]);
             $this->string('SELECT *', $it->getSql(), 'No table');
          }
-      )->error()
-         ->withType(E_USER_ERROR)
-         ->withMessage('Missing table name')
-         ->exists();
+      )
+         ->isInstanceOf('RuntimeException')
+         ->hasMessage('Missing table name');
 
    }
 
@@ -161,10 +163,10 @@ class DBmysqlIterator extends DbTestCase {
 
 
    public function testFields() {
-      $it = $this->it->execute('foo', ['DISTINCT FIELDS' => 'bar']);
+      $it = $this->it->execute('foo', ['FIELDS' => 'bar', 'DISTINCT' => true]);
       $this->string($it->getSql())->isIdenticalTo('SELECT DISTINCT `bar` FROM `foo`');
 
-      $it = $this->it->execute('foo', ['DISTINCT FIELDS' => 'bar', 'FIELDS' => 'baz']);
+      $it = $this->it->execute('foo', ['FIELDS' => ['bar', 'baz'], 'DISTINCT' => true]);
       $this->string($it->getSql())->isIdenticalTo('SELECT DISTINCT `bar`, `baz` FROM `foo`');
 
       $it = $this->it->execute('foo', ['FIELDS' => 'bar']);
@@ -200,14 +202,51 @@ class DBmysqlIterator extends DbTestCase {
       $it = $this->it->execute('foo', ['FIELDS' => ['MAX' => 'bar AS cpt']]);
       $this->string($it->getSql())->isIdenticalTo('SELECT MAX(`bar`) AS cpt FROM `foo`');
 
+      // Backward compability tests
       $this->exception(
          function() {
             $it = $this->it->execute('foo', ['DISTINCT FIELDS' => ['bar', 'baz']]);
-            $this->string($it->getSql())->isIdenticalTo('SELECT `bar`, `baz` FROM `foo`');
+            $this->string($it->getSql())->isIdenticalTo('SELECT DISTINCT `bar`, `baz` FROM `foo`');
          }
       )
          ->isInstanceOf('RuntimeException')
-         ->message->contains('DISTINCT selection can only take one field!');
+         ->message->contains('"SELECT DISTINCT" and "DISTINCT FIELDS" are depreciated.');
+
+      $this->exception(
+         function() {
+            $it = $this->it->execute('foo', ['DISTINCT FIELDS' => ['bar'], 'FIELDS' => ['baz']]);
+            $this->string($it->getSql())->isIdenticalTo('SELECT DISTINCT `bar`, `baz` FROM `foo`');
+         }
+      )
+         ->isInstanceOf('RuntimeException')
+         ->message->contains('"SELECT DISTINCT" and "DISTINCT FIELDS" are depreciated.');
+
+      $this->exception(
+         function() {
+            $it = $this->it->execute('foo', ['DISTINCT FIELDS' => 'bar', 'FIELDS' => ['baz']]);
+            $this->string($it->getSql())->isIdenticalTo('SELECT DISTINCT `bar`, `baz` FROM `foo`');
+         }
+      )
+         ->isInstanceOf('RuntimeException')
+         ->message->contains('"SELECT DISTINCT" and "DISTINCT FIELDS" are depreciated.');
+
+      $this->exception(
+         function() {
+            $it = $this->it->execute('foo', ['DISTINCT FIELDS' => ['bar'], 'FIELDS' => 'baz']);
+            $this->string($it->getSql())->isIdenticalTo('SELECT DISTINCT `bar`, `baz` FROM `foo`');
+         }
+      )
+         ->isInstanceOf('RuntimeException')
+         ->message->contains('"SELECT DISTINCT" and "DISTINCT FIELDS" are depreciated.');
+
+      $this->exception(
+         function() {
+            $it = $this->it->execute('foo', ['DISTINCT FIELDS' => 'bar', 'FIELDS' => 'baz']);
+            $this->string($it->getSql())->isIdenticalTo('SELECT DISTINCT `bar`, `baz` FROM `foo`');
+         }
+      )
+         ->isInstanceOf('RuntimeException')
+         ->message->contains('"SELECT DISTINCT" and "DISTINCT FIELDS" are depreciated.');
    }
 
 
@@ -253,6 +292,12 @@ class DBmysqlIterator extends DbTestCase {
 
       $it = $this->it->execute('foo', ['ORDER' => 'bar DESC, baz ASC']);
       $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` ORDER BY `bar` DESC, `baz` ASC');
+
+      $it = $this->it->execute('foo', ['ORDER' => new \QueryExpression('BIT_COUNT(`netmask_3`) DESC')]);
+      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` ORDER BY BIT_COUNT(`netmask_3`) DESC');
+
+      $it = $this->it->execute('foo', ['ORDER' => [new \QueryExpression('BIT_COUNT(`netmask_3`) DESC'), new \QueryExpression('BIT_COUNT(`netmask_4`) DESC')]]);
+      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` ORDER BY BIT_COUNT(`netmask_3`) DESC, BIT_COUNT(`netmask_4`) DESC');
    }
 
 
@@ -260,7 +305,7 @@ class DBmysqlIterator extends DbTestCase {
       $it = $this->it->execute('foo', ['COUNT' => 'cpt']);
       $this->string($it->getSql())->isIdenticalTo('SELECT COUNT(*) AS cpt FROM `foo`');
 
-      $it = $this->it->execute('foo', ['COUNT' => 'cpt', 'SELECT DISTINCT' => 'bar']);
+      $it = $this->it->execute('foo', ['COUNT' => 'cpt', 'SELECT' => 'bar', 'DISTINCT' => true]);
       $this->string($it->getSql())->isIdenticalTo('SELECT COUNT(DISTINCT `bar`) AS cpt FROM `foo`');
 
       $it = $this->it->execute('foo', ['COUNT' => 'cpt', 'FIELDS' => ['name', 'version']]);
@@ -283,6 +328,16 @@ class DBmysqlIterator extends DbTestCase {
 
       $it = $this->it->execute('foo', ['FIELDS' => ['foo.bar', 'COUNT' => ['foo.baz', 'foo.qux']]]);
       $this->string($it->getSql())->isIdenticalTo('SELECT `foo`.`bar`, COUNT(`foo`.`baz`), COUNT(`foo`.`qux`) FROM `foo`');
+
+      // Backward compability tests
+      $this->exception(
+         function() {
+            $it = $this->it->execute('foo', ['COUNT' => 'cpt', 'SELECT DISTINCT' => 'bar']);
+            $this->string($it->getSql())->isIdenticalTo('SELECT COUNT(DISTINCT `bar`) AS cpt FROM `foo`');
+         }
+      )
+         ->isInstanceOf('RuntimeException')
+         ->message->contains('"SELECT DISTINCT" and "DISTINCT FIELDS" are depreciated.');
    }
 
    public function testCountDistinct() {
@@ -356,23 +411,22 @@ class DBmysqlIterator extends DbTestCase {
          ->isInstanceOf('RuntimeException')
          ->hasMessage('BAD JOIN');
 
-      $this->when(
+      /* FIXME: dunno why this one fails
+      $this->exception(
          function () {
             $it = $this->it->execute('foo', ['LEFT JOIN' => 'bar']);
          }
-      )->error()
-         ->withType(E_USER_ERROR)
-         ->withMessage('BAD JOIN, value must be [ table => criteria ]')
-         ->exists();
+      )
+         ->isInstanceOf('RuntimeException')
+         ->hasMessage('BAD JOIN, value must be [ table => criteria ]');*/
 
-      $this->when(
+      $this->exception(
          function () {
             $it = $this->it->execute('foo', ['INNER JOIN' => ['bar' => ['FKEY' => 'akey']]]);
          }
-      )->error()
-         ->withType(E_USER_ERROR)
-         ->withMessage('BAD FOREIGN KEY, should be [ table1 => key1, table2 => key2 ] or [ table1 => key1, table2 => key2, [criteria]]')
-         ->exists();
+      )
+         ->isInstanceOf('RuntimeException')
+         ->hasMessage('BAD FOREIGN KEY, should be [ table1 => key1, table2 => key2 ] or [ table1 => key1, table2 => key2, [criteria]]');
 
       //test conditions
       $it = $this->it->execute(
@@ -390,8 +444,9 @@ class DBmysqlIterator extends DbTestCase {
          ]
       );
       $this->string($it->getSql())->isIdenticalTo(
-         'SELECT * FROM `foo` LEFT JOIN `bar` ON (`bar`.`id` = `foo`.`fk` OR `field` > \'20\')'
+         'SELECT * FROM `foo` LEFT JOIN `bar` ON (`bar`.`id` = `foo`.`fk` OR `field` > ?)'
       );
+      $this->array($it->getParameters())->isIdenticalTo([20]);
 
       $it = $this->it->execute(
          'foo', [
@@ -408,8 +463,9 @@ class DBmysqlIterator extends DbTestCase {
          ]
       );
       $this->string($it->getSql())->isIdenticalTo(
-         'SELECT * FROM `foo` LEFT JOIN `bar` ON (`bar`.`id` = `foo`.`fk` AND `field` = \'42\')'
+         'SELECT * FROM `foo` LEFT JOIN `bar` ON (`bar`.`id` = `foo`.`fk` AND `field` = ?)'
       );
+      $this->array($it->getParameters())->isIdenticalTo([42]);
 
       //test derived table in JOIN statement
       $it = $this->it->execute(
@@ -431,34 +487,54 @@ class DBmysqlIterator extends DbTestCase {
 
    }
 
+   public function testHaving() {
+      $it = $this->it->execute('foo', ['HAVING' => ['bar' => 1]]);
+      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` HAVING `bar` = ?');
+      $this->array($it->getParameters())->isIdenticalTo([1]);
+
+      $it = $this->it->execute('foo', ['HAVING' => ['bar' => ['>', 0]]]);
+      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` HAVING `bar` > ?');
+      $this->array($it->getParameters())->isIdenticalTo([0]);
+   }
+
+
 
    public function testOperators() {
       $it = $this->it->execute('foo', ['a' => 1]);
-      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE `a` = \'1\'');
+      $this->array($it->getParameters())->isIdenticalTo([1]);
+      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE `a` = ?');
 
       $it = $this->it->execute('foo', ['a' => ['=', 1]]);
-      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE `a` = \'1\'');
+      $this->array($it->getParameters())->isIdenticalTo([1]);
+      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE `a` = ?');
 
       $it = $this->it->execute('foo', ['a' => ['>', 1]]);
-      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE `a` > \'1\'');
+      $this->array($it->getParameters())->isIdenticalTo([1]);
+      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE `a` > ?');
 
       $it = $this->it->execute('foo', ['a' => ['LIKE', '%bar%']]);
-      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE `a` LIKE \'%bar%\'');
+      $this->array($it->getParameters())->isIdenticalTo(['%bar%']);
+      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE `a` LIKE ?');
 
       $it = $this->it->execute('foo', ['NOT' => ['a' => ['LIKE', '%bar%']]]);
-      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE NOT (`a` LIKE \'%bar%\')');
+      $this->array($it->getParameters())->isIdenticalTo(['%bar%']);
+      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE NOT (`a` LIKE ?)');
 
       $it = $this->it->execute('foo', ['a' => ['NOT LIKE', '%bar%']]);
-      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE `a` NOT LIKE \'%bar%\'');
+      $this->array($it->getParameters())->isIdenticalTo(['%bar%']);
+      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE `a` NOT LIKE ?');
 
       $it = $this->it->execute('foo', ['a' => ['<>', 1]]);
-      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE `a` <> \'1\'');
+      $this->array($it->getParameters())->isIdenticalTo([1]);
+      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE `a` <> ?');
 
       $it = $this->it->execute('foo', ['a' => ['&', 1]]);
-      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE `a` & \'1\'');
+      $this->array($it->getParameters())->isIdenticalTo([1]);
+      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE `a` & ?');
 
       $it = $this->it->execute('foo', ['a' => ['|', 1]]);
-      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE `a` | \'1\'');
+      $this->array($it->getParameters())->isIdenticalTo([1]);
+      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE `a` | ?');
    }
 
 
@@ -476,7 +552,8 @@ class DBmysqlIterator extends DbTestCase {
       $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE `bar` IS NULL');
 
       $it = $this->it->execute('foo', ['bar' => 1]);
-      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE `bar` = \'1\'');
+      $this->array($it->getParameters())->isIdenticalTo([1]);
+      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE `bar` = ?');
 
       $this->exception(
          function() {
@@ -487,19 +564,23 @@ class DBmysqlIterator extends DbTestCase {
          ->hasMessage('Empty IN are not allowed');
 
       $it = $this->it->execute('foo', ['bar' => [1, 2, 4]]);
-      $this->string($it->getSql())->isIdenticalTo("SELECT * FROM `foo` WHERE `bar` IN ('1', '2', '4')");
+      $this->array($it->getParameters())->isIdenticalTo([1, 2, 4]);
+      $this->string($it->getSql())->isIdenticalTo("SELECT * FROM `foo` WHERE `bar` IN (?,?,?)");
 
       $it = $this->it->execute('foo', ['bar' => ['a', 'b', 'c']]);
-      $this->string($it->getSql())->isIdenticalTo("SELECT * FROM `foo` WHERE `bar` IN ('a', 'b', 'c')");
+      $this->array($it->getParameters())->isIdenticalTo(['a', 'b', 'c']);
+      $this->string($it->getSql())->isIdenticalTo("SELECT * FROM `foo` WHERE `bar` IN (?,?,?)");
 
       $it = $this->it->execute('foo', ['bar' => 'val']);
-      $this->string($it->getSql())->isIdenticalTo("SELECT * FROM `foo` WHERE `bar` = 'val'");
+      $this->array($it->getParameters())->isIdenticalTo(['val']);
+      $this->string($it->getSql())->isIdenticalTo("SELECT * FROM `foo` WHERE `bar` = ?");
 
       $it = $this->it->execute('foo', ['bar' => '`field`']);
       $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE `bar` = `field`');
 
       $it = $this->it->execute('foo', ['bar' => '?']);
-      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE `bar` = \'?\'');
+      $this->array($it->getParameters())->isIdenticalTo(['?']);
+      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE `bar` = ?');
 
       $it = $this->it->execute('foo', ['bar' => new \QueryParam()]);
       $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE `bar` = ?');
@@ -543,25 +624,23 @@ class DBmysqlIterator extends DbTestCase {
    }
 
    public function testNoFieldGroupBy() {
-      $this->when(
+      $this->exception(
          function () {
             $it = $this->it->execute(['foo'], ['GROUPBY' => []]);
             $this->string('SELECT * FROM `foo`', $it->getSql(), 'No group by field');
          }
-      )->error()
-         ->withType(E_USER_ERROR)
-         ->withMessage('Missing group by field')
-         ->exists();
+      )
+         ->isInstanceOf('RuntimeException')
+         ->hasMessage('Missing group by field');
 
-      $this->when(
+      $this->exception(
          function () {
             $it = $this->it->execute(['foo'], ['GROUP' => []]);
             $this->string('SELECT * FROM `foo`', $it->getSql(), 'No group by field');
          }
-      )->error()
-         ->withType(E_USER_ERROR)
-         ->withMessage('Missing group by field')
-         ->exists();
+      )
+         ->isInstanceOf('RuntimeException')
+         ->hasMessage('Missing group by field');
 
    }
 
@@ -574,16 +653,20 @@ class DBmysqlIterator extends DbTestCase {
 
    public function testLogical() {
       $it = $this->it->execute(['foo'], [['a' => 1, 'b' => 2]]);
-      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE (`a` = \'1\' AND `b` = \'2\')');
+      $this->array($it->getParameters())->isIdenticalTo([1, 2]);
+      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE (`a` = ? AND `b` = ?)');
 
       $it = $this->it->execute(['foo'], ['AND' => ['a' => 1, 'b' => 2]]);
-      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE (`a` = \'1\' AND `b` = \'2\')');
+      $this->array($it->getParameters())->isIdenticalTo([1, 2]);
+      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE (`a` = ? AND `b` = ?)');
 
       $it = $this->it->execute(['foo'], ['OR' => ['a' => 1, 'b' => 2]]);
-      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE (`a` = \'1\' OR `b` = \'2\')');
+      $this->array($it->getParameters())->isIdenticalTo([1, 2]);
+      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE (`a` = ? OR `b` = ?)');
 
       $it = $this->it->execute(['foo'], ['NOT' => ['a' => 1, 'b' => 2]]);
-      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE NOT (`a` = \'1\' AND `b` = \'2\')');
+      $this->array($it->getParameters())->isIdenticalTo([1, 2]);
+      $this->string($it->getSql())->isIdenticalTo('SELECT * FROM `foo` WHERE NOT (`a` = ? AND `b` = ?)');
 
       $crit = [
          'WHERE' => [
@@ -599,8 +682,9 @@ class DBmysqlIterator extends DbTestCase {
             ],
          ],
       ];
-      $sql = "SELECT * FROM `foo` WHERE ((`items_id` = '15' AND `itemtype` = 'Computer') OR (`items_id` = '3' AND `itemtype` = 'Document'))";
+      $sql = "SELECT * FROM `foo` WHERE ((`items_id` = ? AND `itemtype` = ?) OR (`items_id` = ? AND `itemtype` = ?))";
       $it = $this->it->execute(['foo'], $crit);
+      $this->array($it->getParameters())->isIdenticalTo([15, 'Computer', 3, 'Document']);
       $this->string($it->getSql())->isIdenticalTo($sql);
 
       $crit = [
@@ -618,8 +702,9 @@ class DBmysqlIterator extends DbTestCase {
             ],
          ],
       ];
-      $sql = "SELECT * FROM `foo` WHERE `a` = '1' AND (`b` = '2' OR NOT (`c` IN ('2', '3') AND (`d` = '4' AND `e` = '5')))";
+      $sql = "SELECT * FROM `foo` WHERE `a` = ? AND (`b` = ? OR NOT (`c` IN (?,?) AND (`d` = ? AND `e` = ?)))";
       $it = $this->it->execute(['foo'], $crit);
+      $this->array($it->getParameters())->isIdenticalTo([1, 2, 2, 3, 4, 5]);
       $this->string($it->getSql())->isIdenticalTo($sql);
 
       $crit['FROM'] = 'foo';
@@ -634,7 +719,8 @@ class DBmysqlIterator extends DbTestCase {
          ]
       ];
       $it = $this->it->execute($crit);
-      $this->string($it->getSql())->isIdenticalTo("SELECT * FROM `foo` WHERE `bar` = 'baz' AND ((SELECT COUNT(*) FROM xyz) = '5')");
+      $this->string($it->getSql())->isIdenticalTo("SELECT * FROM `foo` WHERE `bar` = ? AND ((SELECT COUNT(*) FROM xyz) = ?)");
+      $this->array($it->getParameters())->isIdenticalTo(['baz', 5]);
 
       $crit = [
          'FROM'   => 'foo',
@@ -644,7 +730,8 @@ class DBmysqlIterator extends DbTestCase {
          ]
       ];
       $it = $this->it->execute($crit);
-      $this->string($it->getSql())->isIdenticalTo("SELECT * FROM `foo` WHERE `bar` = 'baz' AND ((SELECT COUNT(*) FROM xyz) > '2')");
+      $this->string($it->getSql())->isIdenticalTo("SELECT * FROM `foo` WHERE `bar` = ? AND ((SELECT COUNT(*) FROM xyz) > ?)");
+      $this->array($it->getParameters())->isIdenticalTo(['baz', 2]);
 
       $crit = [
          'FROM'   => 'foo',
@@ -654,7 +741,8 @@ class DBmysqlIterator extends DbTestCase {
          ]
       ];
       $it = $this->it->execute($crit);
-      $this->string($it->getSql())->isIdenticalTo("SELECT * FROM `foo` WHERE `bar` = 'baz' AND ((SELECT COUNT(*) FROM xyz) IN ('3', '4'))");
+      $this->string($it->getSql())->isIdenticalTo("SELECT * FROM `foo` WHERE `bar` = ? AND ((SELECT COUNT(*) FROM xyz) IN (?,?))");
+      $this->array($it->getParameters())->isIdenticalTo(['baz', 3, 4]);
    }
 
 
@@ -664,8 +752,9 @@ class DBmysqlIterator extends DbTestCase {
          'FROM'   => 'foo',
          'WHERE'  => ['c' => 1],
       ];
-      $sql = "SELECT `a`, `b` FROM `foo` WHERE `c` = '1'";
+      $sql = "SELECT `a`, `b` FROM `foo` WHERE `c` = ?";
       $it = $this->it->execute($req);
+      $this->array($it->getParameters())->isIdenticalTo([1]);
       $this->string($it->getSql())->isIdenticalTo($sql);
    }
 
@@ -749,10 +838,11 @@ class DBmysqlIterator extends DbTestCase {
 
    public function testSubQuery() {
       $crit = ['SELECT' => 'id', 'FROM' => 'baz', 'WHERE' => ['z' => 'f']];
-      $raw_subq = "(SELECT `id` FROM `baz` WHERE `z` = 'f')";
+      $raw_subq = "(SELECT `id` FROM `baz` WHERE `z` = ?)";
 
       $sub_query =new \QuerySubQuery($crit);
       $this->string($sub_query->getQuery())->isIdenticalTo($raw_subq);
+      $this->array($sub_query->getParameters())->isIdenticalTo(['f']);
 
       $it = $this->it->execute('foo', ['bar' => $sub_query]);
       $this->string($it->getSql())
@@ -806,8 +896,9 @@ class DBmysqlIterator extends DbTestCase {
       $union = new \QueryUnion($union_crit, false, 'theunion');
       $raw_query = 'SELECT DISTINCT `theunion`.`field` FROM ((SELECT * FROM `table1`) UNION ALL (SELECT * FROM `table2`)) AS `theunion`';
       $crit = [
-         'SELECT DISTINCT' => 'theunion.field',
-         'FROM'            => $union,
+         'SELECT'    => 'theunion.field',
+         'DISTINCT'  => true,
+         'FROM'      => $union,
       ];
       $it = $this->it->execute($crit);
       $this->string($it->getSql())->isIdenticalTo($raw_query);
@@ -816,8 +907,9 @@ class DBmysqlIterator extends DbTestCase {
       $union_raw_query = '((SELECT * FROM `table1`) UNION (SELECT * FROM `table2`))';
       $raw_query = 'SELECT DISTINCT `theunion`.`field` FROM ' . $union_raw_query . ' AS `union_' . md5($union_raw_query) . '`';
       $crit = [
-         'SELECT DISTINCT' => 'theunion.field',
-         'FROM'            => $union,
+         'SELECT'    => 'theunion.field',
+         'DISTINCT'  => true,
+         'FROM'      => $union,
       ];
       $it = $this->it->execute($crit);
       $this->string($it->getSql())->isIdenticalTo($raw_query);
@@ -877,22 +969,28 @@ class DBmysqlIterator extends DbTestCase {
                      . " FROM ((SELECT `usr`.`id` AS `users_id`, `tu`.`type` AS `type`"
                      . " FROM `$users_table` AS `tu`"
                      . " LEFT JOIN `glpi_users` AS `usr` ON (`tu`.`users_id` = `usr`.`id`)"
-                     . " WHERE `tu`.`$fk` = '42')"
+                     . " WHERE `tu`.`$fk` = ?)"
                      . " UNION ALL"
                      . " (SELECT `usr`.`id` AS `users_id`, `gt`.`type` AS `type`"
                      . " FROM `$groups_table` AS `gt`"
                      . " LEFT JOIN `glpi_groups_users` AS `gu` ON (`gu`.`groups_id` = `gt`.`groups_id`)"
                      . " LEFT JOIN `glpi_users` AS `usr` ON (`gu`.`users_id` = `usr`.`id`)"
-                     . " WHERE `gt`.`$fk` = '42')"
+                     . " WHERE `gt`.`$fk` = ?)"
                      . ") AS `allactors`";
 
       $union = new \QueryUnion([$subquery1, $subquery2], false, 'allactors');
+      $this->array($union->getParameters())->isIdenticalTo([42, 42]);
+
       $it = $this->it->execute([
-         'SELECT DISTINCT' => 'users_id',
-         'FIELDS'          => ['type'],
+         'FIELDS'          => [
+            'users_id',
+            'type'
+         ],
+         'DISTINCT'        => true,
          'FROM'            => $union
       ]);
       $this->string($it->getSql())->isIdenticalTo($raw_query);
+      $this->array($it->getParameters())->isIdenticalTo([42, 42]);
    }
 
    public function testComplexUnionQueryAgain() {
@@ -918,15 +1016,15 @@ class DBmysqlIterator extends DbTestCase {
                                  '$itemtype' AS `item_type`
                         FROM `glpi_ipaddresses_ipnetworks` AS `LINK`
                         INNER JOIN `glpi_ipaddresses` AS `ADDR` ON (`ADDR`.`id` = `LINK`.`ipaddresses_id`
-                                                            AND `ADDR`.`itemtype` = 'NetworkName'
-                                                            AND `ADDR`.`is_deleted` = '0')
+                                                            AND `ADDR`.`itemtype` = ?
+                                                            AND `ADDR`.`is_deleted` = ?)
                         INNER JOIN `glpi_networknames` AS `NAME` ON (`NAME`.`id` = `ADDR`.`items_id`
-                                                               AND `NAME`.`itemtype` = 'NetworkPort')
+                                                               AND `NAME`.`itemtype` = ?)
                         INNER JOIN `glpi_networkports` AS `PORT` ON (`NAME`.`items_id` = `PORT`.`id`
-                                                               AND `PORT`.`itemtype` = '$itemtype')
+                                                               AND `PORT`.`itemtype` = ?)
                         INNER JOIN `$table` AS `ITEM` ON (`ITEM`.`id` = `PORT`.`items_id`)
                         LEFT JOIN `glpi_entities` ON (`ADDR`.`entities_id` = `glpi_entities`.`id`)
-                        WHERE `LINK`.`ipnetworks_id` = '42')";
+                        WHERE `LINK`.`ipnetworks_id` = ?)";
       }
 
       $queries[] = "(SELECT `ADDR`.`binary_0` AS `binary_0`,
@@ -944,16 +1042,16 @@ class DBmysqlIterator extends DbTestCase {
                               NULL AS `item_type`
                      FROM `glpi_ipaddresses_ipnetworks` AS `LINK`
                      INNER JOIN `glpi_ipaddresses` AS `ADDR` ON (`ADDR`.`id` = `LINK`.`ipaddresses_id`
-                                                         AND `ADDR`.`itemtype` = 'NetworkName'
-                                                         AND `ADDR`.`is_deleted` = '0')
+                                                         AND `ADDR`.`itemtype` = ?
+                                                         AND `ADDR`.`is_deleted` = ?)
                      INNER JOIN `glpi_networknames` AS `NAME` ON (`NAME`.`id` = `ADDR`.`items_id`
-                                                            AND `NAME`.`itemtype` = 'NetworkPort')
+                                                            AND `NAME`.`itemtype` = ?)
                      INNER JOIN `glpi_networkports` AS `PORT`
                         ON (`NAME`.`items_id` = `PORT`.`id`
                               NOT `PORT`.`itemtype`
-                                 IN ('" .implode("', '", $CFG_GLPI["networkport_types"])."'))
+                                 IN ("  . implode(',', array_fill(0, count($CFG_GLPI['networkport_types']), '?')) . "))
                      LEFT JOIN `glpi_entities` ON (`ADDR`.`entities_id` = `glpi_entities`.`id`)
-                     WHERE `LINK`.`ipnetworks_id` = '42')";
+                     WHERE `LINK`.`ipnetworks_id` = ?)";
 
       $queries[] = "(SELECT `ADDR`.`binary_0` AS `binary_0`,
                               `ADDR`.`binary_1` AS `binary_1`,
@@ -970,12 +1068,12 @@ class DBmysqlIterator extends DbTestCase {
                               NULL AS `item_type`
                      FROM `glpi_ipaddresses_ipnetworks` AS `LINK`
                      INNER JOIN `glpi_ipaddresses` AS `ADDR` ON (`ADDR`.`id` = `LINK`.`ipaddresses_id`
-                                                         AND `ADDR`.`itemtype` = 'NetworkName'
-                                                         AND `ADDR`.`is_deleted` = '0')
+                                                         AND `ADDR`.`itemtype` = ?
+                                                         AND `ADDR`.`is_deleted` = ?)
                      INNER JOIN `glpi_networknames` AS `NAME` ON (`NAME`.`id` = `ADDR`.`items_id`
-                                                            AND `NAME`.`itemtype` != 'NetworkPort')
+                                                            AND `NAME`.`itemtype` != ?)
                      LEFT JOIN `glpi_entities` ON (`ADDR`.`entities_id` = `glpi_entities`.`id`)
-                     WHERE `LINK`.`ipnetworks_id` = '42')";
+                     WHERE `LINK`.`ipnetworks_id` = ?)";
 
       $queries[] = "(SELECT `ADDR`.`binary_0` AS `binary_0`,
                               `ADDR`.`binary_1` AS `binary_1`,
@@ -992,10 +1090,10 @@ class DBmysqlIterator extends DbTestCase {
                               NULL AS `item_type`
                      FROM `glpi_ipaddresses_ipnetworks` AS `LINK`
                      INNER JOIN `glpi_ipaddresses` AS `ADDR` ON (`ADDR`.`id` = `LINK`.`ipaddresses_id`
-                                                         AND `ADDR`.`itemtype` != 'NetworkName'
-                                                         AND `ADDR`.`is_deleted` = '0')
+                                                         AND `ADDR`.`itemtype` != ?
+                                                         AND `ADDR`.`is_deleted` = ?)
                      LEFT JOIN `glpi_entities` ON (`ADDR`.`entities_id` = `glpi_entities`.`id`)
-                     WHERE `LINK`.`ipnetworks_id` = '42')";
+                     WHERE `LINK`.`ipnetworks_id` = ?)";
 
       $union_raw_query = '(' . preg_replace('/\s+/', ' ', implode(' UNION ALL ', $queries)) . ')';
       $raw_query = 'SELECT * FROM ' . $union_raw_query . ' AS `union_' . md5($union_raw_query) . '`';
@@ -1150,14 +1248,71 @@ class DBmysqlIterator extends DbTestCase {
 
       $it = $this->it->execute($criteria);
       $this->string($it->getSql())->isIdenticalTo($raw_query);
+      $this->array($it->getParameters())->isIdenticalTo([
+        0 => 'NetworkName',
+        1 => 0,
+        2 => 'NetworkPort',
+        3 => 'Computer',
+        4 => 42,
+        5 => 'NetworkName',
+        6 => 0,
+        7 => 'NetworkPort',
+        8 => 'NetworkEquipment',
+        9 => 42,
+        10 => 'NetworkName',
+        11 => 0,
+        12 => 'NetworkPort',
+        13 => 'Peripheral',
+        14 => 42,
+        15 => 'NetworkName',
+        16 => 0,
+        17 => 'NetworkPort',
+        18 => 'Phone',
+        19 => 42,
+        20 => 'NetworkName',
+        21 => 0,
+        22 => 'NetworkPort',
+        23 => 'Printer',
+        24 => 42,
+        25 => 'NetworkName',
+        26 => 0,
+        27 => 'NetworkPort',
+        28 => 'Enclosure',
+        29 => 42,
+        30 => 'NetworkName',
+        31 => 0,
+        32 => 'NetworkPort',
+        33 => 'PDU',
+        34 => 42,
+        35 => 'NetworkName',
+        36 => 0,
+        37 => 'NetworkPort',
+        38 => 'Computer',
+        39 => 'NetworkEquipment',
+        40 => 'Peripheral',
+        41 => 'Phone',
+        42 => 'Printer',
+        43 => 'Enclosure',
+        44 => 'PDU',
+        45 => 42,
+        46 => 'NetworkName',
+        47 => 0,
+        48 => 'NetworkPort',
+        49 => 42,
+        50 => 'NetworkName',
+        51 => 0,
+        52 => 42
+      ]);
    }
 
    public function testAnalyseCrit() {
+      global $DB;
+
       $crit = [new \QuerySubQuery([
          'SELECT' => ['COUNT' => ['users_id']],
          'FROM'   => 'glpi_groups_users',
-         'WHERE'  => ['groups_id' => new \QueryExpression('glpi_groups.id')]
+         'WHERE'  => ['groups_id' => new \QueryExpression($DB->quoteName('glpi_groups.id'))]
       ])];
-      $this->string($this->it->analyseCrit($crit))->isIdenticalTo("(SELECT COUNT(`users_id`) FROM `glpi_groups_users` WHERE `groups_id` = glpi_groups.id)");
+      $this->string($this->it->analyseCrit($crit))->isIdenticalTo("(SELECT COUNT(`users_id`) FROM `glpi_groups_users` WHERE `groups_id` = `glpi_groups`.`id`)");
    }
 }

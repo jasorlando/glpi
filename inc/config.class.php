@@ -30,12 +30,12 @@
  * ---------------------------------------------------------------------
  */
 
-use Glpi\Cache\SimpleCache;
 use Glpi\Exception\PasswordTooWeakException;
 use PHPMailer\PHPMailer\PHPMailer;
+use Symfony\Component\Yaml\Yaml;
 use Zend\Cache\Storage\AvailableSpaceCapableInterface;
-use Zend\Cache\Storage\TotalSpaceCapableInterface;
 use Zend\Cache\Storage\FlushableInterface;
+use Zend\Cache\Storage\TotalSpaceCapableInterface;
 
 if (!defined('GLPI_ROOT')) {
    die("Sorry. You can't access this file directly");
@@ -60,6 +60,15 @@ class Config extends CommonDBTM {
    static $rightname              = 'config';
 
    static $undisclosedFields      = ['proxy_passwd', 'smtp_passwd'];
+
+   /**
+    * Flag to prevent reloading legacy configuration if already loaded.
+    *
+    * Nota: This has been introduce when implementing the DI container, to handle transition phase.
+    *
+    * @var boolean
+    */
+   private static $legacy_config_already_loaded = false;
 
 
    static function getTypeName($nb = 0) {
@@ -141,7 +150,7 @@ class Config extends CommonDBTM {
          if (empty($input["smtp_passwd"])) {
             unset($input["smtp_passwd"]);
          } else {
-            $input["smtp_passwd"] = Toolbox::encrypt(stripslashes($input["smtp_passwd"]), GLPIKEY);
+            $input["smtp_passwd"] = Toolbox::encrypt($input["smtp_passwd"], GLPIKEY);
          }
       }
 
@@ -153,8 +162,7 @@ class Config extends CommonDBTM {
          if (empty($input["proxy_passwd"])) {
             unset($input["proxy_passwd"]);
          } else {
-            $input["proxy_passwd"] = Toolbox::encrypt(stripslashes($input["proxy_passwd"]),
-                                                      GLPIKEY);
+            $input["proxy_passwd"] = Toolbox::encrypt($input["proxy_passwd"], GLPIKEY);
          }
       }
 
@@ -172,8 +180,13 @@ class Config extends CommonDBTM {
             if (!$already_active) {
                // Activate Slave from the "system" tab
                DBConnection::createDBSlaveConfig();
-
             } else if (isset($input["_dbreplicate_dbhost"])) {
+               if (empty($input['_dbreplicate_dbpassword'])
+                   && file_exists(GLPI_CONFIG_DIR . '/db.slave.yaml')
+               ) {
+                  $db_config = Yaml::parseFile(GLPI_CONFIG_DIR . '/db.slave.yaml');
+                  $input['_dbreplicate_dbpassword'] = $db_config['pass'];
+               }
                // Change parameter from the "replicate" tab
                DBConnection::saveDBSlaveConf($input["_dbreplicate_dbhost"],
                                              $input["_dbreplicate_dbuser"],
@@ -683,8 +696,7 @@ class Config extends CommonDBTM {
       echo "<td>" . __('SQL user') . "</td>";
       echo "<td><input type='text' name='_dbreplicate_dbuser' value='".$DBslave->dbuser."'></td>";
       echo "<td>" . __('SQL password') . "</td>";
-      echo "<td><input type='password' name='_dbreplicate_dbpassword' value='".
-                 rawurldecode($DBslave->dbpassword)."'>";
+      echo "<td><input type='password' name='_dbreplicate_dbpassword' value=''>";
       echo "</td></tr>";
 
       echo "<tr class='tab_bg_2'>";
@@ -699,7 +711,7 @@ class Config extends CommonDBTM {
       echo "<td colspan='2'>&nbsp;</td>";
       echo "</tr>";
 
-      if ($DBslave->connected && !$DB->isSlave()) {
+      if ($DBslave->isConnected() && !$DB->isSlave()) {
          echo "<tr class='tab_bg_2'><td colspan='4' class='center'>";
          DBConnection::showAllReplicateDelay();
          echo "</td></tr>";
@@ -1502,7 +1514,9 @@ class Config extends CommonDBTM {
     * @since 9.1
    **/
    function showPerformanceInformations() {
-      $GLPI_CACHE = self::getCache('cache_db', 'core', false);
+      global $CONTAINER;
+
+      $cache_storage = $CONTAINER->get('application_cache')->getStorage();
 
       if (!Config::canUpdate()) {
          return false;
@@ -1583,53 +1597,46 @@ class Config extends CommonDBTM {
       }
 
       echo "<tr><th colspan='4'>" . __('User data cache') . "</th></tr>";
-      if (Toolbox::useCache()) {
-         $ext = strtolower(get_class($GLPI_CACHE));
-         $ext = substr($ext, strrpos($ext, '\\')+1);
-         if (in_array($ext, ['apcu', 'memcache', 'memcached', 'wincache', 'redis'])) {
-            $msg = sprintf(__s('The "%s" cache extension is installed'), $ext);
-         } else {
-            $msg = sprintf(__s('"%s" cache system is used'), $ext);
-         }
-         echo "<tr><td>" . $msg . "</td>
-               <td>" . phpversion($ext) . "</td>
-               <td></td>
-               <td class='icons_block'><i class='fa fa-check-circle ok' title='$msg'></i><span class='sr-only'>$msg</span></td></tr>";
-
-         if ($ext != 'filesystem' && $GLPI_CACHE instanceof AvailableSpaceCapableInterface && $GLPI_CACHE instanceof TotalSpaceCapableInterface) {
-            $free = $GLPI_CACHE->getAvailableSpace();
-            $max  = $GLPI_CACHE->getTotalSpace();
-            $used = $max - $free;
-            $rate = round(100.0 * $used / $max);
-            $max  = Toolbox::getSize($max);
-            $used = Toolbox::getSize($used);
-
-            echo "<tr><td>" . __('Memory') . "</td>
-            <td>" . sprintf(__('%1$s / %2$s'), $used, $max) . "</td><td>";
-            Html::displayProgressBar('100', $rate, ['simple'       => true,
-                                                    'forcepadding' => false]);
-            $class   = 'info-circle missing';
-            $msg     = sprintf(__s('%1$ss memory usage is too high'), $ext);
-            if ($rate < 80) {
-               $class   = 'check-circle ok';
-               $msg     = sprintf(__s('%1$s memory usage is correct'), $ext);
-            }
-            echo "</td><td class='icons_block'><i title='$msg' class='fa fa-$class'></td></tr>";
-         }
-
-         if ($GLPI_CACHE instanceof FlushableInterface) {
-            if ($_SESSION['glpi_use_mode'] == Session::DEBUG_MODE) {
-               echo "<tr><td></td><td colspan='3'>";
-               echo "<a class='vsubmit' href='config.form.php?reset_cache=1'>";
-               echo __('Reset');
-               echo "</a></td></tr>\n";
-            }
-         }
+      $ext = strtolower(get_class($cache_storage));
+      $ext = substr($ext, strrpos($ext, '\\')+1);
+      if (in_array($ext, ['apcu', 'memcache', 'memcached', 'wincache', 'redis'])) {
+         $msg = sprintf(__s('The "%s" cache extension is installed'), $ext);
       } else {
-         $ext = 'APCu'; // Default cache, can be improved later
-         $msg = sprintf(__s('%s extension is not present'), $ext);
-         echo "<tr><td colspan='3'>" . sprintf(__('Installing the "%s" extension may improve GLPI performance'), $ext) . "</td>
-               <td><i class='fa fa-info-circle missing' title='$msg'></i><span class='sr-only'>$msg</span></td></tr>";
+         $msg = sprintf(__s('"%s" cache system is used'), $ext);
+      }
+      echo "<tr><td>" . $msg . "</td>
+            <td>" . phpversion($ext) . "</td>
+            <td></td>
+            <td class='icons_block'><i class='fa fa-check-circle ok' title='$msg'></i><span class='sr-only'>$msg</span></td></tr>";
+
+      if ($ext != 'filesystem' && $cache_storage instanceof AvailableSpaceCapableInterface && $cache_storage instanceof TotalSpaceCapableInterface) {
+         $free = $cache_storage->getAvailableSpace();
+         $max  = $cache_storage->getTotalSpace();
+         $used = $max - $free;
+         $rate = round(100.0 * $used / $max);
+         $max  = Toolbox::getSize($max);
+         $used = Toolbox::getSize($used);
+
+         echo "<tr><td>" . __('Memory') . "</td>
+         <td>" . sprintf(__('%1$s / %2$s'), $used, $max) . "</td><td>";
+         Html::displayProgressBar('100', $rate, ['simple'       => true,
+                                                 'forcepadding' => false]);
+         $class   = 'info-circle missing';
+         $msg     = sprintf(__s('%1$ss memory usage is too high'), $ext);
+         if ($rate < 80) {
+            $class   = 'check-circle ok';
+            $msg     = sprintf(__s('%1$s memory usage is correct'), $ext);
+         }
+         echo "</td><td class='icons_block'><i title='$msg' class='fa fa-$class'></td></tr>";
+      }
+
+      if ($cache_storage instanceof FlushableInterface) {
+         if ($_SESSION['glpi_use_mode'] == Session::DEBUG_MODE) {
+            echo "<tr><td></td><td colspan='3'>";
+            echo "<a class='vsubmit' href='config.form.php?reset_cache=1'>";
+            echo __('Reset');
+            echo "</a></td></tr>\n";
+         }
       }
 
       echo "</table></div>\n";
@@ -1836,6 +1843,8 @@ class Config extends CommonDBTM {
 
       self::displayCheckDbEngine(true);
 
+      self::displayCheckInnoDB(true);
+
       self::checkWriteAccessToDirs(true);
       toolbox::checkSELinux(true);
 
@@ -1891,12 +1900,11 @@ class Config extends CommonDBTM {
     * @since 9.4
     */
    static function getLibraries($all = false) {
-      include_once(GLPI_HTMLAWED);
       $pm = new PHPMailer();
       $sp = new SimplePie();
 
       // use same name that in composer.json
-      $deps = [[ 'name'    => 'htmLawed',
+      $deps = [[ 'name'    => 'fossar/htmlawed',
                  'version' => hl_version() ,
                  'check'   => 'hl_version' ],
                [ 'name'    => 'phpmailer/phpmailer',
@@ -1932,13 +1940,29 @@ class Config extends CommonDBTM {
                  'check'   => 'Symfony\\Component\\Console\\Application' ],
                [ 'name'    => 'leafo/scssphp',
                  'check'   => 'Leafo\ScssPhp\Compiler' ],
+               [ 'name'    => 'symfony/config',
+                 'check'   => 'Symfony\\Component\\Config\\FileLocator' ],
+               [ 'name'    => 'symfony/dependency-injection',
+                 'check'   => 'Symfony\\Component\\DependencyInjection\\Container' ],
+               [ 'name'    => 'symfony/event-dispatcher',
+                 'check'   => 'Symfony\\Component\\EventDispatcher\\EventDispatcher' ],
+               [ 'name'    => 'symfony/property-access',
+                 'check'   => 'Symfony\Component\PropertyAccess\\PropertyAccessor' ],
+               [ 'name'    => 'symfony/yaml',
+                 'check'   => 'Symfony\\Component\\Yaml\\Yaml' ],
+               [ 'name'    => 'doctrine/annotations',
+                 'check'   => 'Doctrine\Common\Annotations\Annotation' ],
+               [ 'name'    => 'slim/slim',
+                 'check'   => 'Slim\Slim' ],
+               [ 'name'    => 'slim/twig-view',
+                 'check'   => 'Slim\Views\Twig' ],
+               [ 'name'    => 'twig/extensions',
+                 'check'   => 'Twig\Extensions\ArrayExtension' ],
+               [ 'name'    => 'kanellov/slim-twig-flash',
+                 'check'   => 'Knlv\Slim\Views\TwigMessages' ],
+               [ 'name'    => 'runcmf/runtracy',
+                 'check'   => 'RunTracy\Middlewares\TracyMiddleware' ],
       ];
-      if ($all || PHP_VERSION_ID < 70000) {
-         $deps[] = [
-            'name'    => 'paragonie/random_compat',
-            'check'   => 'random_int'
-         ];
-      }
       if (Toolbox::canUseCAS()) {
          $deps[] = [
             'name'    => 'phpCas',
@@ -2193,7 +2217,7 @@ class Config extends CommonDBTM {
     * @param boolean $fordebug display for debug (no html required) (false by default)
     * @param string  $version  Version to check (mainly from install), defaults to null
     *
-    * @return integer 2: missing extension,  1: missing optionnal extension, 0: OK,
+    * @return integer 2: wrong db version,  0: OK
     **/
    static function displayCheckDbEngine($fordebug = false, $version = null) {
       global $CFG_GLPI;
@@ -2230,6 +2254,49 @@ class Config extends CommonDBTM {
       }
       return $error;
    }
+
+   /**
+    * Display non InnoDB tables report
+    *
+    * @since 10.0.0
+    *
+    * @param boolean $fordebug display for debug (no html required) (false by default)
+    *
+    * @return integer 2: error, 0: OK
+    **/
+   static function displayCheckInnoDB($fordebug = false) {
+      global $CFG_GLPI, $DB;
+
+      $error = 0;
+
+      $myisam_tables = $DB->getMyIsamTables();
+      if (count($myisam_tables)) {
+         $error = 2;
+         $message = sprintf(__s('%1$s tables are not using InnoDB engine. Please migrate them!'), count($myisam_tables));
+      } else {
+         $message = __s('All your tables are using InnoDB engine, perfect!');
+      }
+
+      $img = "<img src='".$CFG_GLPI['root_doc']."/pics/";
+      $img .= ($error > 0 ? "ko_min" : "ok_min") . ".png' alt='$message' title='$message'/>";
+
+      if (isCommandLine()) {
+         echo $message . "\n";
+      } else if ($fordebug) {
+         echo $img . $message . "\n";
+      } else {
+         $html = "<td";
+         if ($error > 0) {
+            $html .= " class='red'";
+         }
+         $html .= ">";
+         $html .= $img;
+         $html .= '</td>';
+         echo $html;
+      }
+      return $error;
+   }
+
 
    /**
     * Display extensions checks report
@@ -2325,7 +2392,7 @@ class Config extends CommonDBTM {
    static function checkExtensions($list = null) {
       if ($list === null) {
          $extensions_to_check = [
-            'mysqli'   => [
+            'pdo_mysql'   => [
                'required'  => true
             ],
             'ctype'    => [
@@ -2387,6 +2454,9 @@ class Config extends CommonDBTM {
             'CAS'     => [
                'required' => false,
                'class'    => 'phpCAS'
+            ],
+            'intl' => [
+               'required' => true
             ]
          ];
       } else {
@@ -2661,11 +2731,8 @@ class Config extends CommonDBTM {
          'name'      => 'version'
       ];
 
-      if (!$DB->tableExists('glpi_configs')) {
-         $select  = 'version';
-         $table   = 'glpi_config';
-         $where   = ['id' => 1];
-      } else if ($DB->fieldExists('glpi_configs', 'version')) {
+      if ($DB->fieldExists('glpi_configs', 'version')) {
+         // 0.78 to 0.84 config table schema
          $select  = 'version';
          $where   = ['id' => 1];
       }
@@ -2715,88 +2782,35 @@ class Config extends CommonDBTM {
    /**
     * Load legacy configuration into $CFG_GLPI global variable.
     *
-    * @param boolean $older_to_latest Search on old configuration objects first
-    *
     * @return boolean True for success, false if an error occured
+    *
+    * @since 10.0.0 Parameter $older_to_latest is not longer used.
     */
-   public static function loadLegacyConfiguration($older_to_latest = true) {
-
+   public static function loadLegacyConfiguration() {
       global $CFG_GLPI, $DB;
 
-      $config_tables_iterator = $DB->listTables('glpi_config%');
-      $config_tables = [];
-      foreach ($config_tables_iterator as $config_table) {
-         $config_tables[] = $config_table['TABLE_NAME'];
+      if (self::$legacy_config_already_loaded) {
+         return true;
       }
 
-      $get_prior_to_078_config  = function() use ($DB, $config_tables) {
-         if (!in_array('glpi_config', $config_tables)) {
-            return false;
-         }
+      $iterator = $DB->request(['FROM' => 'glpi_configs']);
 
-         $config = new Config();
-         $config->forceTable('glpi_config');
-         if ($config->getFromDB(1)) {
-            return $config->fields;
-         }
-
+      if ($iterator->count() === 0) {
          return false;
-      };
+      }
 
-      $get_078_to_latest_config    = function() use ($DB, $config_tables) {
-         if (!in_array('glpi_configs', $config_tables)) {
-            return false;
-         }
-
-         Config::forceTable('glpi_configs');
-
-         $iterator = $DB->request(['FROM' => 'glpi_configs']);
-         if ($iterator->count() === 0) {
-            return false;
-         }
-
-         if ($iterator->count() === 1) {
-            // 1 row = 0.78 to 0.84 config table schema
-            return $iterator->next();
-         }
-
+      if ($iterator->count() === 1) {
+         // 1 row = 0.78 to 0.84 config table schema
+         $values = $iterator->next();
+      } else {
          // multiple rows = 0.85+ config
-         $config = [];
+         $values = [];
          while ($row = $iterator->next()) {
             if ('core' !== $row['context']) {
                continue;
             }
-            $config[$row['name']] = $row['value'];
+            $values[$row['name']] = $row['value'];
          }
-         return $config;
-      };
-
-      $functions = [];
-      if ($older_to_latest) {
-         // Try with old config table first : for update process management from < 0.80 to >= 0.80.
-         $functions = [
-            $get_prior_to_078_config,
-            $get_078_to_latest_config,
-         ];
-      } else {
-         // Normal load process : use normal config table. If problem try old one.
-         $functions = [
-            $get_078_to_latest_config,
-            $get_prior_to_078_config,
-         ];
-      }
-
-      $values = [];
-
-      foreach ($functions as $function) {
-         if ($config = $function()) {
-            $values = $config;
-            break;
-         }
-      }
-
-      if (count($values) === 0) {
-         return false;
       }
 
       $CFG_GLPI = array_merge($CFG_GLPI, $values);
@@ -2823,6 +2837,8 @@ class Config extends CommonDBTM {
       if (isset($CFG_GLPI['root_doc'])) {
          $CFG_GLPI['typedoc_icon_dir'] = $CFG_GLPI['root_doc'] . '/pics/icones';
       }
+
+      self::$legacy_config_already_loaded = true;
 
       return true;
    }
@@ -2916,210 +2932,6 @@ class Config extends CommonDBTM {
             });
             </script>";
       return $msg;
-   }
-
-   /**
-    * Get a cache adapter from configuration
-    *
-    * @param string  $optname name of the configuration field
-    * @param string  $context name of the configuration context (default 'core')
-    * @param boolean $psr16   Whether to return a PSR16 compliant obkect or not (since ZendTranslator is NOT PSR16 compliant).
-    *
-    * @return Glpi\Cache\SimpleCache|Zend\Cache\Storage\StorageInterface object
-    */
-   public static function getCache($optname, $context = 'core', $psr16 = true) {
-      global $DB;
-
-      /* Tested configuration values
-       *
-       * - {"adapter":"apcu"}
-       * - {"adapter":"redis","options":{"server":{"host":"127.0.0.1"}},"plugins":["serializer"]}
-       * - {"adapter":"filesystem"}
-       * - {"adapter":"filesystem","options":{"cache_dir":"_cache_trans"},"plugins":["serializer"]}
-       * - {"adapter":"dba"}
-       * - {"adapter":"dba","options":{"pathname":"trans.db","handler":"flatfile"},"plugins":["serializer"]}
-       * - {"adapter":"memcache","options":{"servers":["127.0.0.1"]}}
-       * - {"adapter":"memcached","options":{"servers":["127.0.0.1"]}}
-       * - {"adapter":"wincache"}
-       *
-       */
-      // Read configuration
-      $conf = [];
-      if ($DB
-         && $DB->connected
-         && $DB->fieldExists(self::getTable(), 'context')
-      ) {
-         $conf = self::getConfigurationValues($context, [$optname]);
-      }
-
-      // Adapter default options
-      $opt = [];
-      if (isset($conf[$optname])) {
-         $opt = json_decode($conf[$optname], true);
-         Toolbox::logDebug("CACHE CONFIG  $optname", $opt);
-      }
-
-      //use memory adapter when called from tests
-      if (defined('TU_USER') && !defined('CACHED_TESTS')) {
-         $opt['adapter'] = 'memory';
-      }
-      //force FS adapter for translations for tests
-      if (defined('TU_USER') && $optname == 'cache_trans') {
-         $opt['adapter'] = 'filesystem';
-      }
-
-      if (!isset($opt['options']['namespace'])) {
-         $namespace = "glpi_${optname}_" . GLPI_VERSION;
-         if ($DB) {
-            $namespace .= md5($DB->dbhost . $DB->dbdefault);
-         }
-         $opt['options']['namespace'] = $namespace;
-      }
-      if (!isset($opt['adapter'])) {
-         if (function_exists('apcu_fetch')) {
-            $opt['adapter'] = (version_compare(PHP_VERSION, '7.0.0') >= 0) ? 'apcu' : 'apc';
-         } else if (function_exists('wincache_ucache_add')) {
-            $opt['adapter'] = 'wincache';
-         } else {
-            $opt['adapter'] = 'filesystem';
-         }
-
-         // Cannot skip integrity checks if 'adapter' was computed,
-         // as computation result may differ for a different context (CLI VS web server).
-         $skip_integrity_checks = false;
-
-         $is_computed_config = true;
-      } else {
-         // Adapter names can be written using case variations.
-         // see Zend\Cache\Storage\AdapterPluginManager::$aliases
-         $opt['adapter'] = strtolower($opt['adapter']);
-
-         switch ($opt['adapter']) {
-            // Cache adapters that can share their data accross processes
-            case 'dba':
-            case 'ext_mongo_db':
-            case 'extmongodb':
-            case 'filesystem':
-            case 'memcache':
-            case 'memcached':
-            case 'mongo_db':
-            case 'mongodb':
-            case 'redis':
-               $skip_integrity_checks = true;
-               break;
-
-            // Cache adapters that cannot share their data accross processes
-            case 'apc':
-            case 'apcu':
-            case 'memory':
-            case 'session':
-
-               // wincache activation uses different configuration variable for CLI and web server
-               // so it may not be available for all contexts
-            case 'win_cache':
-            case 'wincache':
-
-               // zend server adapters are not available for CLI context
-            case 'zend_server_disk':
-            case 'zendserverdisk':
-            case 'zend_server_shm':
-            case 'zendservershm':
-
-            default:
-               $skip_integrity_checks = false;
-               break;
-         }
-
-         $is_computed_config = false;
-      }
-
-      // Adapter specific options
-      $ser = false;
-      switch ($opt['adapter']) {
-         case 'filesystem':
-            if (!isset($opt['options']['cache_dir'])) {
-               $opt['options']['cache_dir'] = $optname;
-            }
-            // Make configured directory relative to GLPI cache directory
-            $opt['options']['cache_dir'] = GLPI_CACHE_DIR . '/' . $opt['options']['cache_dir'];
-            if (!is_dir($opt['options']['cache_dir'])) {
-               mkdir($opt['options']['cache_dir']);
-            }
-            $ser = true;
-            break;
-
-         case 'dba':
-            if (!isset($opt['options']['pathname'])) {
-               $opt['options']['pathname'] = "$optname.data";
-            }
-            // Make configured path relative to GLPI cache directory
-            $opt['options']['pathname'] = GLPI_CACHE_DIR . '/' . $opt['options']['pathname'];
-            $ser = true;
-            break;
-
-         case 'redis':
-            $ser = true;
-            break;
-      }
-      // Some know plugins require data serialization
-      if ($ser && !isset($opt['plugins'])) {
-         $opt['plugins'] = ['serializer'];
-      }
-
-      // Create adapter
-      try {
-         $storage = Zend\Cache\StorageFactory::factory($opt);
-      } catch (Exception $e) {
-         if (!$is_computed_config) {
-            Toolbox::logError($e->getMessage());
-         }
-
-         // fallback to filesystem cache system if adapter was not explicitely defined in config
-         $fallback = false;
-         if ($is_computed_config && $opt['adapter'] != 'filesystem') {
-            $opt = [
-               'adapter'   => 'filesystem',
-               'options'   => [
-                  'cache_dir' => GLPI_CACHE_DIR . '/' . $optname
-               ],
-               'plugins'   => ['serializer']
-            ];
-
-            if (!is_dir($opt['options']['cache_dir'])) {
-               mkdir($opt['options']['cache_dir']);
-            }
-            try {
-               $storage = Zend\Cache\StorageFactory::factory($opt);
-               $fallback = true;
-            } catch (Exception $e1) {
-               Toolbox::logError($e1->getMessage());
-               if (isset($_SESSION['glpi_use_mode'])
-                   && Session::DEBUG_MODE == $_SESSION['glpi_use_mode']) {
-                  //preivous attempt has faled as well.
-                  Toolbox::logDebug($e->getMessage());
-               }
-            }
-         }
-
-         if ($fallback === false) {
-            $opt = ['adapter' => 'memory'];
-            $storage = Zend\Cache\StorageFactory::factory($opt);
-         }
-         if (isset($_SESSION['glpi_use_mode'])
-             && Session::DEBUG_MODE == $_SESSION['glpi_use_mode']) {
-            Toolbox::logDebug($e->getMessage());
-         }
-      }
-
-      if (defined('TU_USER')) {
-         $skip_integrity_checks = true;
-      }
-
-      if ($psr16) {
-         return new SimpleCache($storage, GLPI_CACHE_DIR, !$skip_integrity_checks);
-      } else {
-         return $storage;
-      }
    }
 
    /**

@@ -113,7 +113,6 @@ class Notepad extends CommonDBChild {
          $cd               = new self();
          unset($data['id']);
          $data['items_id'] = $newid;
-         $data             = Toolbox::addslashes_deep($data);
          $cd->add($data);
       }
    }
@@ -164,19 +163,44 @@ class Notepad extends CommonDBChild {
       global $DB;
 
       $data = [];
-      $query = "SELECT `glpi_notepads`.*, `glpi_users`.`picture`
-                FROM `glpi_notepads`
-                LEFT JOIN `glpi_users` ON (`glpi_notepads`.`users_id_lastupdater` = `glpi_users`.`id`)
-                WHERE `glpi_notepads`.`itemtype` = '".$item->getType()."'
-                     AND `glpi_notepads`.`items_id` = '".$item->getID()."'
-                ORDER BY `date_mod` DESC";
+      $iterator = $DB->request([
+         'SELECT'    => [
+            'glpi_notepads.*',
+            'glpi_users.picture'
+         ],
+         'FROM'      => self::getTable(),
+         'LEFT JOIN' => [
+            'glpi_users'   => [
+               'ON' => [
+                  self::getTable()  => 'users_id_lastupdater',
+                  'glpi_users'      => 'id'
+               ]
+            ]
+         ],
+         'WHERE'     => [
+            'itemtype'  => $item->getType(),
+            'items_id'  => $item->getID()
+         ],
+         'ORDERBY'   => 'date_mod DESC'
+      ]);
 
-      foreach ($DB->request($query) as $note) {
+      while ($note = $iterator->next()) {
          $data[] = $note;
       }
       return $data;
    }
 
+   public function rawSearchOptions() {
+      $so = self::rawSearchOptionsToAdd();
+      foreach ($so as &$s) {
+         if ($s['id'] == 200) {
+               $s['name'] = __('Content');
+         } else if ($s['id'] == 'notepad') {
+            $s['id'] = 'common';
+         }
+      }
+      return $so;
+   }
 
    static public function rawSearchOptionsToAdd() {
       $tab = [];

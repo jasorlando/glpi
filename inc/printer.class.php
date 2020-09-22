@@ -143,7 +143,7 @@ class Printer  extends CommonDBTM {
          $res = $DB->query($sql);
 
          if ($res) {
-            while ($data = $DB->fetch_assoc($res)) {
+            while ($data = $DB->fetchAssoc($res)) {
                $itemtable = getTableForItemType($data["itemtype"]);
                if ($item = getItemForItemtype($data["itemtype"])) {
                   // For each itemtype which are entity dependant
@@ -228,7 +228,6 @@ class Printer  extends CommonDBTM {
 
 
    function cleanDBonPurge() {
-
       global $DB;
 
       $DB->update(
@@ -825,8 +824,8 @@ class Printer  extends CommonDBTM {
    /**
     * Add a printer. If already exist in trashbin restore it
     *
-    * @param $name          the printer's name (need to be addslashes)
-    * @param $manufacturer  the software's manufacturer (need to be addslashes)
+    * @param $name          the printer's name
+    * @param $manufacturer  the software's manufacturer
     * @param $entity        the entity in which the software must be added
     * @param $comment       comment (default '')
    **/
@@ -868,8 +867,8 @@ class Printer  extends CommonDBTM {
    /**
     * Create a new printer
     *
-    * @param $name         the printer's name (need to be addslashes)
-    * @param $manufacturer the printer's manufacturer (need to be addslashes)
+    * @param $name         the printer's name
+    * @param $manufacturer the printer's manufacturer
     * @param $entity       the entity in which the printer must be added
     * @param $comment      (default '')
     *

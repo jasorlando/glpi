@@ -42,7 +42,6 @@ use Glpi\Console\Command\ForceNoPluginsOptionCommandInterface;
 use Session;
 use Update;
 
-use Symfony\Component\Console\Helper\QuestionHelper;
 use Symfony\Component\Console\Helper\Table;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -57,6 +56,13 @@ class UpdateCommand extends AbstractCommand implements ForceNoPluginsOptionComma
     * @var integer
     */
    const ERROR_NO_UNSTABLE_UPDATE = 1;
+
+   /**
+    * Error code returned when some tables are not using InnoDB engine.
+    *
+    * @var integer
+    */
+   const ERROR_DB_REQUIRES_INNODB = 2;
 
    protected function configure() {
       parent::configure();
@@ -92,6 +98,14 @@ class UpdateCommand extends AbstractCommand implements ForceNoPluginsOptionComma
       $allow_unstable = $input->getOption('allow-unstable');
       $force          = $input->getOption('force');
       $no_interaction = $input->getOption('no-interaction'); // Base symfony/console option
+
+      ob_start();
+      $checkinnodb = \Config::displayCheckInnoDB();
+      $message = ob_get_clean();
+      if ($checkinnodb > 0) {
+         $output->writeln('<error>' . $message . '</error>', OutputInterface::VERBOSITY_QUIET);
+         return self::ERROR_DB_REQUIRES_INNODB;
+      }
 
       $update = new Update($this->db);
 
@@ -140,7 +154,7 @@ class UpdateCommand extends AbstractCommand implements ForceNoPluginsOptionComma
 
       if (!$no_interaction) {
          // Ask for confirmation (unless --no-interaction)
-         /** @var QuestionHelper $question_helper */
+         /** @var \Symfony\Component\Console\Helper\QuestionHelper $question_helper */
          $question_helper = $this->getHelper('question');
          $run = $question_helper->ask(
             $input,
@@ -170,8 +184,8 @@ class UpdateCommand extends AbstractCommand implements ForceNoPluginsOptionComma
       } else if ($force) {
          // Replay last update script even if there is no schema change.
          // It can be used in dev environment when update script has been updated/fixed.
-         include_once(GLPI_ROOT . '/install/update_940_941.php');
-         update940to941();
+         include_once(GLPI_ROOT . '/install/update_94_100.php');
+         update94to100();
 
          $output->writeln('<info>' . __('Last migration replayed.') . '</info>');
       }

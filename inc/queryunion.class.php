@@ -116,4 +116,13 @@ class QueryUnion extends AbstractQuery {
 
       return $query;
    }
+
+   public function getParameters() {
+      $union_queries = $this->getQueries();
+      $parameters = [];
+      foreach ($union_queries as $query) {
+         $parameters = array_merge($parameters, $query->getParameters());
+      }
+      return $parameters;
+   }
 }

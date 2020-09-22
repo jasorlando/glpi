@@ -76,6 +76,9 @@ class MailCollector  extends CommonDBTM {
    /// Body converted
    public $body_converted  = false;
 
+   protected $twig_compat = true;
+   private $docollect     = false;
+
    /**
     * Flag that tells wheter the body is in HTML format or not.
     * @var string
@@ -93,6 +96,15 @@ class MailCollector  extends CommonDBTM {
    // Values for requester_field
    const REQUESTER_FIELD_FROM = 0;
    const REQUESTER_FIELD_REPLY_TO = 1;
+
+   public function __construct() {
+      $this->mapped_fields = [
+        'server' => [
+            'host'
+        ]
+      ];
+      parent::__construct();
+   }
 
    static function getTypeName($nb = 0) {
       return _n('Receiver', 'Receivers', $nb);
@@ -118,15 +130,40 @@ class MailCollector  extends CommonDBTM {
     * @since 0.85
    **/
    static function getAdditionalMenuOptions() {
+      global $router;
 
       if (static::canView()) {
-         $options['options']['notimportedemail']['links']['search']
-                                          = '/front/notimportedemail.php';
+         $page = 'front/notimportedemail.php';
+         if ($router !== null) {
+            $page = $router->pathFor('list', ['itemtype' => 'NotImportedEmail']);
+         }
+         return [
+            'notimportedemail' => [
+               'links' => [
+                  'search' => $page
+               ]
+            ]
+         ];
          return $options;
       }
       return false;
    }
 
+
+   static function getExtraLinks() {
+      $links = [];
+      if (static::canView()) {
+         $links[] = [
+             'icon'  => 'envelope',
+             'title' => NotImportedEmail::getTypeName(),
+             'uri'   => NotImportedEmail::getSearchURL(false)
+         ];
+      }
+      if (count($links)) {
+         return $links;
+      }
+      return false;
+   }
 
    function post_getEmpty() {
       global $CFG_GLPI;
@@ -145,7 +182,7 @@ class MailCollector  extends CommonDBTM {
          if (empty($input["passwd"])) {
             unset($input["passwd"]);
          } else {
-            $input["passwd"] = Toolbox::encrypt(stripslashes($input["passwd"]), GLPIKEY);
+            $input["passwd"] = Toolbox::encrypt($input["passwd"], GLPIKEY);
          }
       }
 
@@ -161,6 +198,11 @@ class MailCollector  extends CommonDBTM {
          Session::addMessageAfterRedirect(__('Invalid email address'), false, ERROR);
       }
 
+      if (isset($input['_docollect'])) {
+         unset($input['_docollect']);
+         $this->docollect = true;
+      }
+
       return $input;
    }
 
@@ -174,7 +216,7 @@ class MailCollector  extends CommonDBTM {
          if (empty($input["passwd"])) {
             unset($input["passwd"]);
          } else {
-            $input["passwd"] = Toolbox::encrypt(stripslashes($input["passwd"]), GLPIKEY);
+            $input["passwd"] = Toolbox::encrypt($input["passwd"], GLPIKEY);
          }
       }
 
@@ -189,182 +231,6 @@ class MailCollector  extends CommonDBTM {
       return $input;
    }
 
-
-   /**
-    * @see CommonGLPI::defineTabs()
-   **/
-   function defineTabs($options = []) {
-
-      $ong = [];
-      $this->addDefaultFormTab($ong);
-      $this->addStandardTab(__CLASS__, $ong, $options);
-      $this->addStandardTab('Log', $ong, $options);
-
-      return $ong;
-   }
-
-
-   /**
-    * @see CommonGLPI::getTabNameForItem()
-   **/
-   function getTabNameForItem(CommonGLPI $item, $withtemplate = 0) {
-
-      if (!$withtemplate) {
-         switch ($item->getType()) {
-            case __CLASS__ :
-               return _n('Action', 'Actions', Session::getPluralNumber());
-         }
-      }
-      return '';
-   }
-
-
-   /**
-    * @param $item         CommonGLPI object
-    * @param $tabnum       (default 1
-    * @param $withtemplate (default 0)
-   **/
-   static function displayTabContentForItem(CommonGLPI $item, $tabnum = 1, $withtemplate = 0) {
-      global $CFG_GLPI;
-
-      if ($item->getType() == __CLASS__) {
-         $item->showGetMessageForm($item->getID());
-      }
-      return true;
-   }
-
-
-   /**
-    * Print the mailgate form
-    *
-    * @param $ID        integer  Id of the item to print
-    * @param $options   array
-    *     - target filename : where to go when done.
-    *
-    * @return boolean item found
-   **/
-   function showForm($ID, $options = []) {
-      global $CFG_GLPI;
-
-      $this->initForm($ID, $options);
-      $options['colspan'] = 1;
-      $this->showFormHeader($options);
-
-      echo "<tr class='tab_bg_1'><td>".sprintf(__('%1$s (%2$s)'), __('Name'), __('Email address')).
-           "</td><td>";
-      Html::autocompletionTextField($this, "name");
-      echo "</td></tr>";
-
-      if ($this->fields['errors']) {
-         echo "<tr class='tab_bg_1_2'><td>".__('Connection errors')."</td>";
-         echo "<td>".$this->fields['errors']."</td>";
-         echo "</tr>";
-      }
-
-      echo "<tr class='tab_bg_1'><td>".__('Active')."</td><td>";
-      Dropdown::showYesNo("is_active", $this->fields["is_active"]);
-      echo "</td></tr>";
-
-      $type = Toolbox::showMailServerConfig($this->fields["host"]);
-
-      echo "<tr class='tab_bg_1'><td>".__('Login')."</td><td>";
-      Html::autocompletionTextField($this, "login");
-      echo "</td></tr>";
-
-      echo "<tr class='tab_bg_1'><td>".__('Password')."</td>";
-      echo "<td><input type='password' name='passwd' value='' size='20' autocomplete='off'>";
-      if ($ID > 0) {
-         echo "<input type='checkbox' name='_blank_passwd'>&nbsp;".__('Clear');
-      }
-      echo "</td></tr>";
-
-      echo "<tr class='tab_bg_1'><td>" . __('Use Kerberos authentication') . "</td>";
-      echo "<td>";
-      Dropdown::showYesNo("use_kerberos", $this->fields["use_kerberos"]);
-      echo "</td></tr>\n";
-
-      if ($type != "pop") {
-         echo "<tr class='tab_bg_1'><td>" . __('Accepted mail archive folder (optional)') . "</td>";
-         echo "<td>";
-         echo "<input size='30' type='text' id='accepted_folder' name='accepted' value=\"".$this->fields['accepted']."\">";
-         echo "<i class='fa fa-list pointer get-imap-folder'></i>";
-         echo "</td></tr>\n";
-
-         echo "<tr class='tab_bg_1'><td>" . __('Refused mail archive folder (optional)') . "</td>";
-         echo "<td>";
-         echo "<input size='30' type='text' id='refused_folder' name='refused' value=\"".$this->fields['refused']."\">";
-         echo "<i class='fa fa-list pointer get-imap-folder'></i>";
-         echo "</td></tr>\n";
-      }
-
-      echo "<tr class='tab_bg_1'>";
-      echo "<td width='200px'> ". __('Maximum size of each file imported by the mails receiver').
-           "</td><td>";
-      self::showMaxFilesize('filesize_max', $this->fields["filesize_max"]);
-      echo "</td></tr>";
-
-      echo "<tr class='tab_bg_1'><td>" . __('Use mail date, instead of collect one') . "</td>";
-      echo "<td>";
-      Dropdown::showYesNo("use_mail_date", $this->fields["use_mail_date"]);
-      echo "</td></tr>\n";
-
-      echo "<tr class='tab_bg_1'><td>" . __('Use Reply-To as requester (when available)') . "</td>";
-      echo "<td>";
-      Dropdown::showFromArray("requester_field", [
-         self::REQUESTER_FIELD_FROM => __('No'),
-         self::REQUESTER_FIELD_REPLY_TO => __('Yes')
-      ], ["value" => $this->fields['requester_field']]);
-      echo "</td></tr>\n";
-
-      echo "<tr class='tab_bg_1'><td>".__('Comments')."</td>";
-      echo "<td><textarea cols='45' rows='5' name='comment' >".$this->fields["comment"]."</textarea>";
-
-      if ($ID > 0) {
-         echo "<br>";
-         //TRANS: %s is the datetime of update
-         printf(__('Last update on %s'), Html::convDateTime($this->fields["date_mod"]));
-      }
-      echo "</td></tr>";
-
-      $this->showFormButtons($options);
-
-      echo "<div id='imap-folder'></div>";
-      echo Html::scriptBlock("$(function() {
-         $('#imap-folder')
-            .dialog(options = {
-               autoOpen: false,
-               autoResize:true,
-               width: 'auto',
-               modal: true,
-            });
-
-         $(document).on('click', '.get-imap-folder', function() {
-            var input = $(this).prev('input');
-
-            var data = 'action=getFoldersList';
-            data += '&input_id=' + input.attr('id');
-            // Get form values without server_mailbox value to prevent filtering
-            data += '&' + $(this).closest('form').find(':not([name=\"server_mailbox\"])').serialize();
-            // Force empty value for server_mailbox
-            data += '&server_mailbox=';
-
-            $('#imap-folder')
-               .html('')
-               .load('".$CFG_GLPI['root_doc']."/ajax/mailcollector.php', data)
-               .dialog('open');
-         });
-
-         $(document).on('click', '.select_folder li', function() {
-            var li       = $(this);
-            var input_id = li.data('input-id');
-            var folder   = li.children('.folder-name').html();
-
-            $('#'+input_id).val(folder);
-            $('#imap-folder').dialog('close');
-         })
-      });");
-      return true;
-   }
 
    /**
     * Display the list of folder for current connections
@@ -640,165 +506,159 @@ class MailCollector  extends CommonDBTM {
 
 
    /**
-    * Constructor
+    * Do mail collect
     *
-    * @param $mailgateID   ID of the mailgate
-    * @param $display      display messages in MessageAfterRedirect or just return error (default 0=)
+    * @param $display display messages in MessageAfterRedirect or just return error (default 0)
     *
     * @return if $display = false return messages result string
    **/
-   function collect($mailgateID, $display = 0) {
+   function collect($display = 0) {
       global $CFG_GLPI;
 
-      if ($this->getFromDB($mailgateID)) {
-         $this->uid          = -1;
-         $this->fetch_emails = 0;
-         //Connect to the Mail Box
-         $this->connect();
-         $rejected = new NotImportedEmail();
+      $mailgateID         = $this->fields['id'];
+      $this->uid          = -1;
+      $this->fetch_emails = 0;
+      //Connect to the Mail Box
+      $this->connect();
+      $rejected = new NotImportedEmail();
 
-         // Clean from previous collect (from GUI, cron already truncate the table)
-         $rejected->deleteByCriteria(['mailcollectors_id' => $this->fields['id']]);
+      // Clean from previous collect (from GUI, cron already truncate the table)
+      $rejected->deleteByCriteria(['mailcollectors_id' => $this->fields['id']]);
 
-         if ($this->marubox) {
-            // Get Total Number of Unread Email in mail box
-            $tot         = $this->getTotalMails(); //Total Mails in Inbox Return integer value
-            $error       = 0;
-            $refused     = 0;
-            $blacklisted = 0;
+      if ($this->marubox) {
+         // Get Total Number of Unread Email in mail box
+         $tot         = $this->getTotalMails(); //Total Mails in Inbox Return integer value
+         $error       = 0;
+         $refused     = 0;
+         $blacklisted = 0;
 
-            //get messages id
-            for ($i=1; ($i <= $tot); $i++) {
-               $this->messages_uid[$i] = imap_uid($this->marubox, $i);
+         //get messages id
+         for ($i=1; ($i <= $tot); $i++) {
+            $this->messages_uid[$i] = imap_uid($this->marubox, $i);
+         }
+
+         for ($i=1; ($i <= $tot) && ($this->fetch_emails < $this->maxfetch_emails); $i++) {
+            $uid = $this->messages_uid[$i];
+            $tkt = $this->buildTicket($uid, ['mailgates_id' => $mailgateID,
+                                             'play_rules'   => true]);
+
+            $rejinput                      = [];
+            $rejinput['mailcollectors_id'] = $mailgateID;
+            if (!$tkt['_blacklisted']) {
+               $rejinput['from']              = $tkt['_head'][$this->getRequesterField()];
+               $rejinput['to']                = $tkt['_head']['to'];
+               $rejinput['users_id']          = $tkt['_users_id_requester'];
+               $rejinput['subject']           = $this->textCleaner($tkt['_head']['subject']);
+               $rejinput['messageid']         = $tkt['_head']['message_id'];
             }
+            $rejinput['date']              = $_SESSION["glpi_currenttime"];
 
-            for ($i=1; ($i <= $tot) && ($this->fetch_emails < $this->maxfetch_emails); $i++) {
-               $uid = $this->messages_uid[$i];
-               $tkt = $this->buildTicket($uid, ['mailgates_id' => $mailgateID,
-                                                'play_rules'   => true]);
+            $is_user_anonymous = !(isset($tkt['_users_id_requester'])
+                                    && ($tkt['_users_id_requester'] > 0));
+            $is_supplier_anonymous = !(isset($tkt['_supplier_email'])
+                                       && $tkt['_supplier_email']);
 
-               $rejinput                      = [];
-               $rejinput['mailcollectors_id'] = $mailgateID;
-               if (!$tkt['_blacklisted']) {
-                  $rejinput['from']              = $tkt['_head'][$this->getRequesterField()];
-                  $rejinput['to']                = $tkt['_head']['to'];
-                  $rejinput['users_id']          = $tkt['_users_id_requester'];
-                  $rejinput['subject']           = $this->textCleaner($tkt['_head']['subject']);
-                  $rejinput['messageid']         = $tkt['_head']['message_id'];
+            if (isset($tkt['_blacklisted']) && $tkt['_blacklisted']) {
+               $this->deleteMails($uid, self::REFUSED_FOLDER);
+               $blacklisted++;
+            } else if (isset($tkt['_refuse_email_with_response'])) {
+               $this->deleteMails($uid, self::REFUSED_FOLDER);
+               $refused++;
+               $this->sendMailRefusedResponse($tkt['_head'][$this->getRequesterField()], $tkt['name']);
+
+            } else if (isset($tkt['_refuse_email_no_response'])) {
+               $this->deleteMails($uid, self::REFUSED_FOLDER);
+               $refused++;
+
+            } else if (isset($tkt['entities_id'])
+                        && !isset($tkt['tickets_id'])
+                        && ($CFG_GLPI["use_anonymous_helpdesk"]
+                           || !$is_user_anonymous
+                           || !$is_supplier_anonymous)) {
+
+               // New ticket case
+               $ticket = new Ticket();
+
+               if (!$CFG_GLPI["use_anonymous_helpdesk"]
+                     && !Profile::haveUserRight($tkt['_users_id_requester'],
+                                                Ticket::$rightname,
+                                                CREATE,
+                                                $tkt['entities_id'])) {
+                  $this->deleteMails($uid, self::REFUSED_FOLDER);
+                  $refused++;
+                  $rejinput['reason'] = NotImportedEmail::NOT_ENOUGH_RIGHTS;
+                  $rejected->add($rejinput);
+               } else if ($ticket->add($tkt)) {
+                  $this->deleteMails($uid, self::ACCEPTED_FOLDER);
+               } else {
+                  $error++;
+                  $rejinput['reason'] = NotImportedEmail::FAILED_OPERATION;
+                  $rejected->add($rejinput);
                }
-               $rejinput['date']              = $_SESSION["glpi_currenttime"];
 
-               $is_user_anonymous = !(isset($tkt['_users_id_requester'])
-                                      && ($tkt['_users_id_requester'] > 0));
-               $is_supplier_anonymous = !(isset($tkt['_supplier_email'])
-                                          && $tkt['_supplier_email']);
+            } else if (isset($tkt['tickets_id'])
+                        && ($CFG_GLPI['use_anonymous_followups'] || !$is_user_anonymous)) {
 
-               if (isset($tkt['_blacklisted']) && $tkt['_blacklisted']) {
-                  $this->deleteMails($uid, self::REFUSED_FOLDER);
-                  $blacklisted++;
-               } else if (isset($tkt['_refuse_email_with_response'])) {
+               // Followup case
+               $ticket = new Ticket();
+               $fup = new ITILFollowup();
+
+               $fup_input = $tkt;
+               $fup_input['itemtype'] = Ticket::class;
+               $fup_input['items_id'] = $fup_input['tickets_id'];
+               unset($fup_input['tickets_id']);
+
+               if (!$ticket->getFromDB($tkt['tickets_id'])) {
+                  $error++;
+                  $rejinput['reason'] = NotImportedEmail::FAILED_OPERATION;
+                  $rejected->add($rejinput);
+               } else if (!$CFG_GLPI['use_anonymous_followups']
+                           && !$ticket->canUserAddFollowups($tkt['_users_id_requester'])) {
                   $this->deleteMails($uid, self::REFUSED_FOLDER);
                   $refused++;
-                  $this->sendMailRefusedResponse($tkt['_head'][$this->getRequesterField()], $tkt['name']);
+                  $rejinput['reason'] = NotImportedEmail::NOT_ENOUGH_RIGHTS;
+                  $rejected->add($rejinput);
+               } else if ($fup->add($fup_input)) {
+                  $this->deleteMails($uid, self::ACCEPTED_FOLDER);
+               } else {
+                  $error++;
+                  $rejinput['reason'] = NotImportedEmail::FAILED_OPERATION;
+                  $rejected->add($rejinput);
+               }
 
-               } else if (isset($tkt['_refuse_email_no_response'])) {
-                  $this->deleteMails($uid, self::REFUSED_FOLDER);
-                  $refused++;
-
-               } else if (isset($tkt['entities_id'])
-                          && !isset($tkt['tickets_id'])
-                          && ($CFG_GLPI["use_anonymous_helpdesk"]
-                              || !$is_user_anonymous
-                              || !$is_supplier_anonymous)) {
-
-                  // New ticket case
-                  $ticket = new Ticket();
-
-                  if (!$CFG_GLPI["use_anonymous_helpdesk"]
-                      && !Profile::haveUserRight($tkt['_users_id_requester'],
-                                                 Ticket::$rightname,
-                                                 CREATE,
-                                                 $tkt['entities_id'])) {
-                     $this->deleteMails($uid, self::REFUSED_FOLDER);
-                     $refused++;
-                     $rejinput['reason'] = NotImportedEmail::NOT_ENOUGH_RIGHTS;
-                     $rejected->add($rejinput);
-                  } else if ($ticket->add($tkt)) {
-                     $this->deleteMails($uid, self::ACCEPTED_FOLDER);
-                  } else {
-                     $error++;
-                     $rejinput['reason'] = NotImportedEmail::FAILED_OPERATION;
-                     $rejected->add($rejinput);
-                  }
-
-               } else if (isset($tkt['tickets_id'])
-                          && ($CFG_GLPI['use_anonymous_followups'] || !$is_user_anonymous)) {
-
-                  // Followup case
-                  $ticket = new Ticket();
-                  $fup = new ITILFollowup();
-
-                  $fup_input = $tkt;
-                  $fup_input['itemtype'] = Ticket::class;
-                  $fup_input['items_id'] = $fup_input['tickets_id'];
-                  unset($fup_input['tickets_id']);
-
-                  if (!$ticket->getFromDB($tkt['tickets_id'])) {
-                     $error++;
-                     $rejinput['reason'] = NotImportedEmail::FAILED_OPERATION;
-                     $rejected->add($rejinput);
-                  } else if (!$CFG_GLPI['use_anonymous_followups']
-                             && !$ticket->canUserAddFollowups($tkt['_users_id_requester'])) {
-                     $this->deleteMails($uid, self::REFUSED_FOLDER);
-                     $refused++;
-                     $rejinput['reason'] = NotImportedEmail::NOT_ENOUGH_RIGHTS;
-                     $rejected->add($rejinput);
-                  } else if ($fup->add($fup_input)) {
-                     $this->deleteMails($uid, self::ACCEPTED_FOLDER);
-                  } else {
-                     $error++;
-                     $rejinput['reason'] = NotImportedEmail::FAILED_OPERATION;
-                     $rejected->add($rejinput);
-                  }
+            } else {
+               if (!$tkt['_users_id_requester']) {
+                  $rejinput['reason'] = NotImportedEmail::USER_UNKNOWN;
 
                } else {
-                  if (!$tkt['_users_id_requester']) {
-                     $rejinput['reason'] = NotImportedEmail::USER_UNKNOWN;
-
-                  } else {
-                     $rejinput['reason'] = NotImportedEmail::MATCH_NO_RULE;
-                  }
-                  $refused++;
-                  $rejected->add($rejinput);
-                  $this->deleteMails($uid, self::REFUSED_FOLDER);
+                  $rejinput['reason'] = NotImportedEmail::MATCH_NO_RULE;
                }
-               $this->fetch_emails++;
+               $refused++;
+               $rejected->add($rejinput);
+               $this->deleteMails($uid, self::REFUSED_FOLDER);
             }
-            imap_expunge($this->marubox);
-            $this->close_mailbox();   //Close Mail Box
+            $this->fetch_emails++;
+         }
+         imap_expunge($this->marubox);
+         $this->close_mailbox();   //Close Mail Box
 
-            //TRANS: %1$d, %2$d, %3$d, %4$d and %5$d are number of messages
-            $msg = sprintf(__('Number of messages: available=%1$d, retrieved=%2$d, refused=%3$d, errors=%4$d, blacklisted=%5$d'),
-                           $tot, $this->fetch_emails, $refused, $error, $blacklisted);
-            if ($display) {
-               Session::addMessageAfterRedirect($msg, false, ($error ? ERROR : INFO));
-            } else {
-               return $msg;
-            }
-
+         //TRANS: %1$d, %2$d, %3$d, %4$d and %5$d are number of messages
+         $msg = sprintf(
+            __('Number of messages: available=%1$d, retrieved=%2$d, refused=%3$d, errors=%4$d, blacklisted=%5$d'),
+            $tot,
+            $this->fetch_emails,
+            $refused,
+            $error,
+            $blacklisted
+         );
+         if ($display) {
+            Session::addMessageAfterRedirect($msg, false, ($error ? ERROR : INFO));
          } else {
-            $msg = __('Could not connect to mailgate server');
-            if ($display) {
-               Session::addMessageAfterRedirect($msg, false, ERROR);
-               GlpiNetwork::addErrorMessageAfterRedirect();
-            } else {
-               return $msg;
-            }
+            return $msg;
          }
 
       } else {
-         //TRANS: %s is the ID of the mailgate
-         $msg = sprintf(__('Could not find mailgate %d'), $mailgateID);
+         $msg = __('Could not connect to mailgate server');
          if ($display) {
             Session::addMessageAfterRedirect($msg, false, ERROR);
             GlpiNetwork::addErrorMessageAfterRedirect();
@@ -1066,7 +926,6 @@ class MailCollector  extends CommonDBTM {
 
       $tkt['content'] = LitEmoji::encodeShortcode($tkt['content']);
 
-      $tkt = Toolbox::addslashes_deep($tkt);
       return $tkt;
    }
 
@@ -1122,7 +981,8 @@ class MailCollector  extends CommonDBTM {
    }
 
 
-   /** function textCleaner - Strip out unwanted/unprintable characters from the subject.
+   /**
+    * Strip out unwanted/unprintable characters from the subject.
     *
     * @param $text text to clean
     *
@@ -1297,7 +1157,7 @@ class MailCollector  extends CommonDBTM {
 
 
    /**
-    * This function is use full to Get Header info from particular mail
+    * Get Header info from particular mail
     *
     * @param $uid UID of the message
     *
@@ -1780,13 +1640,14 @@ class MailCollector  extends CommonDBTM {
 
       if (count($iterator) > 0) {
          $mc = new self();
+         $mc->getFromDB($data['id']);
 
          while (($max > 0)
                   && ($data = $iterator->next())) {
             $mc->maxfetch_emails = $max;
 
             $task->log("Collect mails from ".$data["name"]." (".$data["host"].")\n");
-            $message = $mc->collect($data["id"]);
+            $message = $mc->collect();
 
             $task->addVolume($mc->fetch_emails);
             $task->log("$message\n");
@@ -2014,6 +1875,146 @@ class MailCollector  extends CommonDBTM {
 
          default:
             return "from";
+      }
+   }
+
+   /**
+    * Form fields configuration and mapping.
+    *
+    * Array order will define fields display order.
+    *
+    * Missing fields from database will be automatically displayed.
+    * If you want to avoid this;
+    * @see getFormHiddenFields and/or @see getFormFieldsToDrop
+    *
+    * @since 10.0.0
+    *
+    * @return array
+    */
+   protected function getFormFields() {
+      $fields = [
+         'name'   => [
+            'label'  => __('Name (Email address)')
+         ],
+         'is_active'     => [
+            'label'  => __('Active'),
+            'type'   => 'yesno'
+         ],
+         'server'   => [
+             'label'  => __('Connection configuration'),
+             'type'   => 'text',
+             'name'   => 'server',
+             'type'   => 'mailserver_config',
+         ],
+         'login'  => [
+            'label'  => __('Login')
+         ],
+         'passwd'  => [
+            'label'  => __('Password'),
+            'type'   => 'password',
+            'clear'  => true
+         ],
+         'use_kerberos'  => [
+            'label'  => __('Use Kerberos'),
+            'type'   => 'yesno'
+         ],
+         'accepted'   => [
+            'label'  => [
+                'label' => __('Accepted folder'),
+                'title' => __('Accpetd mail archive folder, optional')
+            ],
+            'posticons' => ['list button get-imap-folder']
+         ],
+         'refused' => [
+            'label'  => [
+                'label' => __('Refused folder'),
+                'title' => __('Refused mail archive folder, optional')
+            ],
+            'posticons' => ['list button get-imap-folder']
+         ],
+         'filesize_max'  => [
+            'label'  => [
+               'label' => __('Maximum file size'),
+               'title' => __('Maximum size of each file imported by the mails receiver')
+            ],
+            'htmltype'  => 'number'
+         ],
+         'use_mail_date' => [
+            'label'  => [
+               'label' => __('Use mail date'),
+               'title' => __('Use mail date, instead of collect one')
+            ],
+            'type'   => 'yesno'
+         ],
+         'requester_field'  => [
+            'label'  => [
+              'label'   => __('Use Reply-To as requester'),
+              'title'   => __('Use Reply-To as requester when available')
+            ],
+            'type'   => 'yesno'
+         ]
+      ] + parent::getFormFields();
+      return $fields;
+   }
+
+   /**
+    * Get hidden fields building form
+    *
+    * @since 10.0.0
+    *
+    * @param boolean $add Add or update
+    *
+    * @return array
+    */
+   protected function getFormHiddenFields($add = false) {
+      $fields = array_merge(
+         parent::getFormHiddenFields($add), [
+            'host'
+         ]
+      );
+      return $fields;
+   }
+
+   /**
+    * Get form
+    *
+    * @since 10.0.0
+    *
+    * @param boolean $add Add or edit
+    *
+    * @return array
+    */
+   public function getForm($add = false) {
+      $form = parent::getForm($add);
+      $form['columns'] = 1;
+      $form['footer_elements'] = [
+         '_docollect' => [
+            'name'   => '_docollect',
+            'type'   => 'submit',
+            'value'  => __('Save and collect')
+         ]
+      ];
+      return $form;
+   }
+
+   /**
+    * Get field to be dropped building form
+    *
+    * @since 10.0.0
+    *
+    * @param boolean $add Add or update
+    *
+    * @return array
+    */
+   protected function getFormFieldsToDrop($add = false) {
+       $fields = parent::getFormFieldsToDrop($add);
+       $fields[] = 'errors';
+       return $fields;
+   }
+
+   public function post_updateItem($history = 1) {
+      if ($this->docollect === true) {
+         $this->collect(1);
       }
    }
 }

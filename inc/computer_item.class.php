@@ -101,7 +101,7 @@ class Computer_Item extends CommonDBRelation{
          if ($CFG_GLPI["is_location_autoupdate"]
              && ($comp->fields['locations_id'] != $item->getField('locations_id'))) {
 
-            $updates['locations_id'] = addslashes($comp->fields['locations_id']);
+            $updates['locations_id'] = $comp->fields['locations_id'];
             Session::addMessageAfterRedirect(
                   __('Location updated. The connected items have been moved in the same location.'),
                                              true);
@@ -126,8 +126,8 @@ class Computer_Item extends CommonDBRelation{
              && (($comp->fields['contact'] != $item->getField('contact'))
                  || ($comp->fields['contact_num'] != $item->getField('contact_num')))) {
 
-            $updates['contact']     = addslashes($comp->fields['contact']);
-            $updates['contact_num'] = addslashes($comp->fields['contact_num']);
+            $updates['contact']     = $comp->fields['contact'];
+            $updates['contact_num'] = $comp->fields['contact_num'];
             Session::addMessageAfterRedirect(
                __('Alternate username updated. The connected items have been updated using this alternate username.'),
                                              true);
@@ -689,6 +689,7 @@ class Computer_Item extends CommonDBRelation{
 
 
    function getTabNameForItem(CommonGLPI $item, $withtemplate = 0) {
+      global $IS_TWIG;
 
       // can exists for Template
       if ($item->can($item->getField('id'), READ)) {
@@ -699,7 +700,7 @@ class Computer_Item extends CommonDBRelation{
             case 'Peripheral' :
             case 'Monitor' :
                if (Computer::canView()) {
-                  if ($_SESSION['glpishow_count_on_tabs']) {
+                  if ($_SESSION['glpishow_count_on_tabs'] && !$IS_TWIG) {
                      $nb = self::countForItem($item);
                   }
                   return self::createTabEntry(_n('Connection', 'Connections', Session::getPluralNumber()),
@@ -712,7 +713,7 @@ class Computer_Item extends CommonDBRelation{
                    || Printer::canView()
                    || Peripheral::canView()
                    || Monitor::canView()) {
-                  if ($_SESSION['glpishow_count_on_tabs']) {
+                  if ($_SESSION['glpishow_count_on_tabs'] && !$IS_TWIG) {
                      $nb = self::countForMainItem($item);
                   }
                   return self::createTabEntry(_n('Connection', 'Connections', Session::getPluralNumber()),
@@ -724,6 +725,17 @@ class Computer_Item extends CommonDBRelation{
       return '';
    }
 
+   protected function countForTab($item, $tab, $deleted = 0, $template = 0) {
+      switch ($item->getType()) {
+         case 'Phone' :
+         case 'Printer' :
+         case 'Peripheral' :
+         case 'Monitor' :
+            return self::countForItem($item);
+         case 'Computer':
+            return self::countForMainItem($item);
+      }
+   }
 
    static function displayTabContentForItem(CommonGLPI $item, $tabnum = 1, $withtemplate = 0) {
 

@@ -423,6 +423,7 @@ class Profile extends CommonDBTM {
     * @return array
    **/
    static function getUnderActiveProfileRestrictCriteria() {
+      global $DB;
 
       // Not logged -> no profile to see
       if (!isset($_SESSION['glpiactiveprofile'])) {
@@ -447,7 +448,7 @@ class Profile extends CommonDBTM {
             $right_subqueries[] = [
                'glpi_profilerights.name'     => $key,
                'RAW'                         => [
-                  '(' . DBmysql::quoteName('glpi_profilerights.rights') . ' | ' . DBmysql::quoteValue($val) . ')' => $val
+                  '(' . $DB->quoteName('glpi_profilerights.rights') . ' | ' . $DB->quote($val) . ')' => $val
                ]
             ];
          }
@@ -457,11 +458,16 @@ class Profile extends CommonDBTM {
          'FROM'   => 'glpi_profilerights',
          'COUNT'  => 'cpt',
          'WHERE'  => [
-            'glpi_profilerights.profiles_id' => new \QueryExpression(\DBmysql::quoteName('glpi_profiles.id')),
+            'glpi_profilerights.profiles_id' => new \QueryExpression($DB->quoteName('glpi_profiles.id')),
             'OR'                             => $right_subqueries
          ]
       ]);
-      $criteria[] = new \QueryExpression(count($right_subqueries)." = ".$sub_query->getQuery());
+
+      $expr = $DB->mergeStatementWithParams(
+         count($right_subqueries)." = ".$sub_query->getQuery(),
+         $sub_query->getParameters()
+      );
+      $criteria[] = new \QueryExpression($expr);
 
       if (Session::getCurrentInterface() == 'central') {
          return [
@@ -531,7 +537,6 @@ class Profile extends CommonDBTM {
 
 
    function post_getEmpty() {
-      global $GLPI_CACHE;
 
       $this->fields["interface"] = "helpdesk";
       $this->fields["name"]      = __('Without name');

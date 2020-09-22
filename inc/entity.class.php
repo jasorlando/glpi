@@ -106,6 +106,18 @@ class Entity extends CommonTreeDropdown {
                                                    'max_closedate', 'tickettemplates_id']];
 
 
+   /**
+    * @var \Psr\SimpleCache\CacheInterface
+    */
+   protected $cache;
+
+   public function __construct() {
+      global $CONTAINER;
+      $this->cache = $CONTAINER->get('application_cache');
+
+      parent::__construct();
+   }
+
    function getForbiddenStandardMassiveAction() {
 
       $forbidden   = parent::getForbiddenStandardMassiveAction();
@@ -121,8 +133,6 @@ class Entity extends CommonTreeDropdown {
     * @since 0.84
    **/
    function pre_deleteItem() {
-      global $GLPI_CACHE;
-
       // Security do not delete root entity
       if ($this->input['id'] == 0) {
          return false;
@@ -130,11 +140,9 @@ class Entity extends CommonTreeDropdown {
 
       //Cleaning sons calls getAncestorsOf and thus... Re-create cache. Call it before clean.
       $this->cleanParentsSons();
-      if (Toolbox::useCache()) {
-         $ckey = $this->getTable() . '_ancestors_cache_' . $this->getID();
-         if ($GLPI_CACHE->has($ckey)) {
-            $GLPI_CACHE->delete($ckey);
-         }
+      $ckey = $this->getTable() . '_ancestors_cache_' . $this->getID();
+      if ($this->cache->has($ckey)) {
+         $this->cache->delete($ckey);
       }
       return true;
    }
@@ -1109,7 +1117,7 @@ class Entity extends CommonTreeDropdown {
 
       echo "<script type='text/javascript'>";
       echo "   $(function() {
-                  $.getScript('{$CFG_GLPI["root_doc"]}/lib/jqueryplugins/jstree/jstree.min.js').done(function(data, textStatus, jqxhr) {
+                  $.getScript('{$CFG_GLPI["root_doc"]}/public/lib/jstree/jstree.js').done(function(data, textStatus, jqxhr) {
                      $('#tree_projectcategory$rand')
                      // call `.jstree` with the options object
                      .jstree({
@@ -2010,7 +2018,7 @@ class Entity extends CommonTreeDropdown {
     * @since 0.84 (before in entitydata.class)
     *
     * @param $field
-    * @param $value must be addslashes
+    * @param $value
    **/
    private static function getEntityIDByField($field, $value) {
       global $DB;

@@ -46,12 +46,12 @@ It is distributed under the GNU GENERAL PUBLIC LICENSE Version 2 - please consul
 
 * A web server (Apache, Nginx, IIS, etc.)
 * MariaDB >= 10.0 or MySQL >= 5.6
-* PHP 5.6 or higher
+* PHP 7.0.8 or higher
 * Mandatory PHP extensions:
     - json
     - mbstring
     - iconv
-    - mysqli
+    - pdo_mysql
     - session
     - gd (picture generation)
     - curl (CAS authentication)
@@ -99,25 +99,6 @@ We are working on a [markdown version](https://github.com/glpi-project/doc)
 * [Development documentation](http://glpi-developer-documentation.readthedocs.io/en/master/)
 * [Plugin directory](http://plugins.glpi-project.org)
 * [Plugin development documentation](http://glpi-developer-documentation.readthedocs.io/en/master/plugins/index.html)
-
-
-## Used JS libraries
- * [Chartist.js v0.10.1](https://github.com/gionkunz/chartist-js) MIT/WTFPL
- * [chartist-plugin-legend v0.6.0](https://github.com/CodeYellowBV/chartist-plugin-legend) ISC
- * [chartist-plugin-tooltip v0.0.17](https://github.com/tmmdata/chartist-plugin-tooltip) MIT
- * [Font-Awesome v5.5.0](https://github.com/FortAwesome/Font-Awesome) MIT
- * [fuzzy v0.1.3](https://github.com/mattyork/fuzzy) MIT
- * [gridstack.js v unknow-dev](https://github.com/gridstack/gridstack.js) MIT
- * [htmLawed v1.2.4](http://www.bioinformatics.org/phplabware/internal_utilities/htmLawed/) LGPL3/GPL2+
- * [jQuery v1.12.4](https://github.com/jquery/jquery) MIT
- * [jQuery UI v1.10.4](https://github.com/jquery/jquery-ui) MIT
- * jQuery plugins *
- * [Leaflet v1.3.4](https://github.com/Leaflet/Leaflet) BSD2S
- * [PrismJS v1.15.0](https://github.com/PrismJS/prism) MIT
- * [spin.js v2.3.2](https://github.com/fgnass/spin.js) MIT
- * [TinyMCE v4.9.0](https://github.com/tinymce/tinymce) LGPL2.1
- * [Underscore.js v1.8.3](https://github.com/jashkenas/underscore) MIT
- * [Lodash v4.17.11](https://github.com/lodash/lodash) MIT
 
 
 ## Support

@@ -188,7 +188,7 @@ class Reminder extends CommonDBVisible {
       unset($criteria['WHERE']);
       $criteria['FROM'] = self::getTable();
 
-      $it = new \DBmysqlIterator(null);
+      $it = new \DBmysqlIterator($DB);
       $it->buildQuery($criteria);
       $sql = $it->getSql();
       $sql = trim(str_replace(
@@ -202,22 +202,23 @@ class Reminder extends CommonDBVisible {
    /**
     * Return visibility SQL restriction to add
     *
-    * @return string restrict to add
+    * @return array
    **/
    static function addVisibilityRestrict() {
       //not deprecated because used in Search
+      global $DB;
 
       //get and clean criteria
       $criteria = self::getVisibilityCriteria();
       unset($criteria['LEFT JOIN']);
       $criteria['FROM'] = self::getTable();
 
-      $it = new \DBmysqlIterator(null);
+      $it = new \DBmysqlIterator($DB);
       $it->buildQuery($criteria);
       $sql = $it->getSql();
       $sql = preg_replace('/.*WHERE /', '', $sql);
 
-      return $sql;
+      return ['sql' => $sql, 'params' => $it->getParameters()];
    }
 
    /**
@@ -970,7 +971,8 @@ class Reminder extends CommonDBVisible {
 
       $table = self::getTable();
       $criteria = [
-         'SELECT DISTINCT' => "$table.*",
+         'SELECT'          => "$table.*",
+         'DISTINCT'        => true,
          'FROM'            => $table,
          'WHERE'           => $WHERE,
          'ORDER'           => 'begin'
@@ -1162,7 +1164,8 @@ class Reminder extends CommonDBVisible {
 
          $criteria = array_merge_recursive(
             [
-               'SELECT DISTINCT' => 'glpi_reminders.*',
+               'SELECT'          => 'glpi_reminders.*',
+               'DISTINCT'        => true,
                'FROM'            => 'glpi_reminders',
                'WHERE'           => $visibility_criteria,
                'ORDERBY'         => 'name'

@@ -34,7 +34,6 @@ if (!defined('GLPI_ROOT')) {
    die("Sorry. You can't access this file directly");
 }
 
-
 /**
  * CommonDevice Class
  * for Device*class
@@ -98,11 +97,18 @@ abstract class CommonDevice extends CommonDropdown {
     *  @since 0.85
    **/
    static function getMenuContent() {
+      global $router;
 
       $menu = [];
       if (self::canView()) {
+         $page = '/front/devices.php';
+         if ($router != null) {
+            $page = $router->pathFor('devices');
+         }
+
          $menu['title'] = static::getTypeName(Session::getPluralNumber());
-         $menu['page']  = '/front/devices.php';
+         $menu['itemtype']  = self::getType();
+         $menu['page']  = $page;
 
          $dps = Dropdown::getDeviceItemTypes();
 
@@ -186,7 +192,7 @@ abstract class CommonDevice extends CommonDropdown {
          [
             'SELECT'    => [
                'itemtype',
-               new QueryExpression('GROUP_CONCAT(DISTINCT ' . DBmysql::quoteName('items_id') . ') AS ids'),
+               new QueryExpression('GROUP_CONCAT(DISTINCT ' . $DB->quoteName('items_id') . ') AS ids'),
             ],
             'FROM'      => $linktable,
             'WHERE'     => [
@@ -559,5 +565,16 @@ abstract class CommonDevice extends CommonDropdown {
       $link = "$dir/front/device.php?itemtype=$itemtype";
 
       return $link;
+   }
+
+   /**
+    * Get main tabs configuration
+    *
+    * @since 10.0.0
+    *
+    * @return array
+    */
+   protected function getMainTabs() {
+      return [static::getItem_DeviceType()];
    }
 }

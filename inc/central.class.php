@@ -173,18 +173,9 @@ class Central extends CommonGLPI {
             $warnings[] = sprintf(__('For security reasons, please remove file: %s'),
                                "install/install.php");
          }
-
-         $myisam_tables = $DB->getMyIsamTables();
-         if (count($myisam_tables)) {
-            $warnings[] = sprintf(
-               __('%1$s tables not migrated to InnoDB engine.'),
-               count($myisam_tables)
-            );
-         }
       }
 
-      if ($DB->isSlave()
-          && !$DB->first_connection) {
+      if ($DB->isSlave()) {
          $warnings[] = __('SQL replica: read only');
       }
 

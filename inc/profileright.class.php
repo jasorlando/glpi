@@ -53,40 +53,52 @@ class ProfileRight extends CommonDBChild {
     * @return array
     */
    static function getAllPossibleRights() {
-      global $DB, $GLPI_CACHE;
+      global $DB;
+
+      $appCache = Toolbox::getAppCache();
 
       $rights = [];
 
-      if (!$GLPI_CACHE->has('all_possible_rights')
-          || count($GLPI_CACHE->get('all_possible_rights')) == 0) {
-
-         $iterator = $DB->request([
-            'SELECT DISTINCT' => 'name',
-            'FROM'            => self::getTable()
-         ]);
-         while ($right = $iterator->next()) {
-            // By default, all rights are NULL ...
-            $rights[$right['name']] = '';
-         }
-         $GLPI_CACHE->set('all_possible_rights', $rights);
-      } else {
-         $rights = $GLPI_CACHE->get('all_possible_rights');
+      if ($appCache->has('all_possible_rights')
+         && count($appCache->get('all_possible_rights')) > 0) {
+         return $appCache->get('all_possible_rights');
       }
+
+      $iterator = $DB->request([
+         'SELECT'          => 'name',
+         'DISTINCT'        => true,
+         'FROM'            => self::getTable()
+      ]);
+      while ($right = $iterator->next()) {
+         // By default, all rights are NULL ...
+         $rights[$right['name']] = '';
+      }
+      $appCache->set('all_possible_rights', $rights);
+
       return $rights;
    }
 
 
    static function cleanAllPossibleRights() {
-      global $GLPI_CACHE;
-      $GLPI_CACHE->delete('all_possible_rights');
+      $appCache = Toolbox::getAppCache();
+      $appCache->delete('all_possible_rights');
    }
 
    /**
-    * @param $profiles_id
-    * @param $rights         array
-   **/
+    * Get rights for a profile
+    *
+    * @param integer $profiles_id Profile ID
+    * @param array   $rights      Rihts
+    *
+    * @return array
+    */
    static function getProfileRights($profiles_id, array $rights = []) {
       global $DB;
+
+      if (!version_compare(Config::getCurrentDBVersion(), '0.84', '>=')) {
+         //table does not exists.
+         return [];
+      }
 
       $query = [
          'FROM'   => 'glpi_profilerights',
@@ -110,25 +122,33 @@ class ProfileRight extends CommonDBChild {
     * @return boolean
    **/
    static function addProfileRights(array $rights) {
-      global $DB, $GLPI_CACHE;
+      global $DB;
+
+      $appCache = Toolbox::getAppCache();
+      $appCache->set('all_possible_rights', []);
 
       $ok = true;
-      $GLPI_CACHE->set('all_possible_rights', []);
 
       $iterator = $DB->request([
           'SELECT'   => ['id'],
           'FROM'     => Profile::getTable()
       ]);
 
+      $stmt = null;
       while ($profile = $iterator->next()) {
          $profiles_id = $profile['id'];
          foreach ($rights as $name) {
-            $res = $DB->insert(
-               self::getTable(), [
-                  'profiles_id'  => $profiles_id,
-                  'name'         => $name
-               ]
-            );
+            $params = [
+               'profiles_id'  => $profiles_id,
+               'name'         => $name
+            ];
+
+            if ($stmt === null) {
+               $stmt = $DB->prepare($DB->buildInsert(self::getTable(), $params));
+            }
+
+            $res = $stmt->execute($params);
+
             if (!$res) {
                $ok = false;
             }
@@ -144,9 +164,11 @@ class ProfileRight extends CommonDBChild {
     * @return boolean
    **/
    static function deleteProfileRights(array $rights) {
-      global $DB, $GLPI_CACHE;
+      global $DB;
 
-      $GLPI_CACHE->set('all_possible_rights', []);
+      $appCache = Toolbox::getAppCache();
+      $appCache->set('all_possible_rights', []);
+
       $ok = true;
       foreach ($rights as $name) {
          $result = $DB->delete(
@@ -240,20 +262,38 @@ class ProfileRight extends CommonDBChild {
    static function fillProfileRights($profiles_id) {
       global $DB;
 
-      $query = "SELECT DISTINCT POSSIBLE.`name` AS NAME
-                FROM `glpi_profilerights` AS POSSIBLE
-                WHERE NOT EXISTS (SELECT *
-                                  FROM `glpi_profilerights` AS CURRENT
-                                  WHERE CURRENT.`profiles_id` = '$profiles_id'
-                                        AND CURRENT.`NAME` = POSSIBLE.`NAME`)";
+      $subq =new \QuerySubQuery([
+         'FROM'   => 'glpi_profilerights AS CURRENT',
+         'WHERE'  => [
+            'CURRENT.profiles_id'   => $profiles_id,
+            'CURRENT.NAME'          => new \QueryExpression('POSSIBLE.NAME')
+         ]
+      ]);
 
-      foreach ($DB->request($query) as $right) {
-         $DB->insert(
-            self::getTable(), [
-               'profiles_id'  => $profiles_id,
-               'name'         => $right['NAME']
-            ]
-         );
+      $expr = $DB->mergeStatementWithParams(
+         'NOT EXISTS ' . $subq->getQuery(),
+         $subq->getParameters()
+      );
+      $iterator = $DB->request([
+         'SELECT'          => 'POSSIBLE.name AS NAME',
+         'DISTINCT'        => true,
+         'FROM'            => 'glpi_profilerights AS POSSIBLE',
+         'WHERE'           => [
+            new \QueryExpression($expr)
+         ]
+      ]);
+
+      $stmt = null;
+      while ($right = $iterator->next()) {
+         $params = [
+            'profiles_id'  => $profiles_id,
+            'name'         => $right['NAME']
+         ];
+
+         if ($stmt === null) {
+            $stmt = $DB->prepare($DB->buildInsert(self::getTable(), $params));
+         }
+         $stmt->execute($params);
       }
    }
 
@@ -348,5 +388,4 @@ class ProfileRight extends CommonDBChild {
    function getLogTypeID() {
       return ['Profile', $this->fields['profiles_id']];
    }
-
 }

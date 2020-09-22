@@ -36,20 +36,22 @@ if (!defined('GLPI_ROOT')) {
    die("Sorry. You can't access this file directly");
 }
 
-use Config;
-use DBConnection;
+use Glpi\Application\LocalConfigurationManager;
 use Glpi\Console\Command\ForceNoPluginsOptionCommandInterface;
-use Toolbox;
-
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Exception\InvalidArgumentException;
-use Symfony\Component\Console\Helper\QuestionHelper;
 use Symfony\Component\Console\Helper\Table;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Question\Question;
+use Symfony\Component\PropertyAccess\PropertyAccessor;
+use Symfony\Component\Yaml\Yaml;
+use Config;
+use DBConnection;
+use PDO;
+use Toolbox;
 
 class InstallCommand extends Command implements ForceNoPluginsOptionCommandInterface {
 
@@ -94,6 +96,20 @@ class InstallCommand extends Command implements ForceNoPluginsOptionCommandInter
     * @var integer
     */
    const ERROR_SCHEMA_CREATION_FAILED = 6;
+
+   /**
+    * Error code returned when failing to select database.
+    *
+    * @var integer
+    */
+   const ERROR_DB_SELECT_FAILED = 7;
+
+   /**
+    * Error code returned when failing to save local configuration file.
+    *
+    * @var integer
+    */
+   const ERROR_LOCAL_CONFIG_FILE_NOT_SAVED = 8;
 
    protected function configure() {
       parent::configure();
@@ -163,7 +179,7 @@ class InstallCommand extends Command implements ForceNoPluginsOptionCommandInter
       ];
       foreach ($options as $name => $label) {
          if (null === $input->getOption($name)) {
-            /** @var QuestionHelper $question_helper */
+            /** @var \Symfony\Component\Console\Helper\QuestionHelper $question_helper */
             $question_helper = $this->getHelper('question');
             $value = $question_helper->ask(
                $input,
@@ -189,7 +205,7 @@ class InstallCommand extends Command implements ForceNoPluginsOptionCommandInter
       $force          = $input->getOption('force');
       $no_interaction = $input->getOption('no-interaction'); // Base symfony/console option
 
-      if (file_exists(GLPI_CONFIG_DIR . '/config_db.php') && !$force) {
+      if (file_exists(GLPI_CONFIG_DIR . '/db.yaml') && !$force) {
          // Prevent overriding of existing DB
          $output->writeln(
             '<error>' . __('Database configuration already exists. Use --force option to override existing database and configuration.') . '</error>'
@@ -235,40 +251,67 @@ class InstallCommand extends Command implements ForceNoPluginsOptionCommandInter
          }
       }
 
-      $mysqli = new \mysqli();
-      @$mysqli->connect($db_host, $db_user, $db_pass, null, $db_port);
+      $hostport = explode(":", $db_host);
+      if (count($hostport) < 2 || intval($hostport[1]) > 0) {
+         // "host" or "host:port"
+         $dsn = "mysql:host=$db_host";
+      } else {
+         // ":socket"
+         $dsn = "mysql:unix_socket={$hostport[1]}";
+      }
 
-      if (0 !== $mysqli->connect_errno) {
+      try {
+         $dbh = new PDO(
+            $dsn,
+            $db_user,
+            $db_pass
+         );
+         $dbh->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+         if (GLPI_FORCE_EMPTY_SQL_MODE) {
+            $dbh->query("SET SESSION sql_mode = ''");
+         }
+      } catch (\PDOException $e) {
          $message = sprintf(
-            __('Database connection failed with message "(%s) %s".'),
-            $mysqli->connect_errno,
-            $mysqli->connect_error
+            __('Database connection failed with message "(%s)\n%s".'),
+            $e->getMessage(),
+            $e->getTraceAsString()
          );
          $output->writeln('<error>' . $message . '</error>', OutputInterface::VERBOSITY_QUIET);
          return self::ERROR_DB_CONNECTION_FAILED;
+
       }
 
       ob_start();
-      $db_version_data = $mysqli->query('SELECT version()')->fetch_array();
-      $checkdb = Config::displayCheckDbEngine(false, $db_version_data[0]);
+      $db_version = $dbh->query('SELECT version()')->fetchColumn();
+      $checkdb = Config::displayCheckDbEngine(false, $db_version);
       $message = ob_get_clean();
       if ($checkdb > 0) {
          $output->writeln('<error>' . $message . '</error>', OutputInterface::VERBOSITY_QUIET);
          return self::ERROR_DB_ENGINE_UNSUPPORTED;
       }
 
-      $db_name = $mysqli->real_escape_string($db_name);
+      $db_name = str_replace('`', '``', $db_name); // Escape backquotes
 
       $output->writeln(
          '<comment>' . __('Creating the database...') . '</comment>',
          OutputInterface::VERBOSITY_VERBOSE
       );
-      if (!$mysqli->query('CREATE DATABASE IF NOT EXISTS `' . $db_name .'`')
-          || !$mysqli->select_db($db_name)) {
+      if (!$dbh->query('CREATE DATABASE IF NOT EXISTS `' . $db_name .'`')) {
+         $error = $dbh->errorInfo();
          $message = sprintf(
-            __('Database creation failed with message "(%s) %s".'),
-            $mysqli->errno,
-            $mysqli->error
+            __("Database creation failed with message \"(%s)\n%s\"."),
+            $error[0],
+            $error[2]
+         );
+         $output->writeln('<error>' . $message . '</error>', OutputInterface::VERBOSITY_QUIET);
+         return self::ERROR_DB_CREATION_FAILED;
+      }
+      if (false === $dbh->exec('USE `' . $db_name .'`')) {
+         $error = $dbh->errorInfo();
+         $message = sprintf(
+            __("Database selection failed with message \"(%s)\n%s\"."),
+            $error[0],
+            $error[2]
          );
          $output->writeln('<error>' . $message . '</error>', OutputInterface::VERBOSITY_QUIET);
          return self::ERROR_DB_CREATION_FAILED;
@@ -278,10 +321,10 @@ class InstallCommand extends Command implements ForceNoPluginsOptionCommandInter
          '<comment>' . __('Saving configuration file...') . '</comment>',
          OutputInterface::VERBOSITY_VERBOSE
       );
-      if (!DBConnection::createMainConfig($db_hostport, $db_user, $db_pass, $db_name)) {
+      if (!DBConnection::createMainConfig('mysql', $db_hostport, $db_user, $db_pass, $db_name)) {
          $message = sprintf(
             __('Cannot write configuration file "%s".'),
-            GLPI_CONFIG_DIR . DIRECTORY_SEPARATOR . 'config_db.php'
+            GLPI_CONFIG_DIR . DIRECTORY_SEPARATOR . 'db.yaml'
          );
          $output->writeln(
             '<error>' . $message . '</error>',
@@ -301,6 +344,23 @@ class InstallCommand extends Command implements ForceNoPluginsOptionCommandInter
       if (!empty($message)) {
          $output->writeln('<error>' . $message . '</error>', OutputInterface::VERBOSITY_QUIET);
          return self::ERROR_SCHEMA_CREATION_FAILED;
+      }
+
+      try {
+         $localConfigManager = new LocalConfigurationManager(
+            GLPI_CONFIG_DIR,
+            new PropertyAccessor(),
+            new Yaml()
+         );
+         $localConfigManager->setParameterValue('[cache_uniq_id]', uniqid());
+      } catch (\Exception $e) {
+         $message = sprintf(
+            __('Local configuration file saving failed with message "(%s)\n%s".'),
+            $e->getMessage(),
+            $e->getTraceAsString()
+         );
+         $output->writeln('<error>' . $message . '</error>', OutputInterface::VERBOSITY_QUIET);
+         return self::ERROR_LOCAL_CONFIG_FILE_NOT_SAVED;
       }
 
       $output->writeln('<info>' . __('Installation done.') . '</info>');

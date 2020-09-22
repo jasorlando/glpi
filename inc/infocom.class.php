@@ -121,23 +121,22 @@ class Infocom extends CommonDBChild {
    }
 
 
-   /**
-    * @see CommonGLPI::getTabNameForItem()
-   **/
+   //TODO: remove with old UI
    function getTabNameForItem(CommonGLPI $item, $withtemplate = 0) {
+      global $IS_TWIG;
 
       // Can exists on template
       if (Session::haveRight(self::$rightname, READ)) {
          $nb = 0;
          switch ($item->getType()) {
             case 'Supplier' :
-               if ($_SESSION['glpishow_count_on_tabs']) {
+               if ($_SESSION['glpishow_count_on_tabs'] && !$IS_TWIG) {
                   $nb = self::countForSupplier($item);
                }
                return self::createTabEntry(_n('Item', 'Items', Session::getPluralNumber()), $nb);
 
             default :
-               if ($_SESSION['glpishow_count_on_tabs']) {
+               if ($_SESSION['glpishow_count_on_tabs'] && !$IS_TWIG) {
                   $nb = countElementsInTable('glpi_infocoms',
                                              ['itemtype' => $item->getType(),
                                               'items_id' => $item->getID()]);
@@ -148,6 +147,13 @@ class Infocom extends CommonDBChild {
       return '';
    }
 
+   protected function countForTab($item, $tab, $deleted = 0, $template = 0) {
+      switch ($item->getType()) {
+         case Supplier::getType():
+            return self::countForSupplier($item);
+      }
+      return parent::countForTab($item, $tab, $deleted, $template);
+   }
 
    /**
     * @param $item            CommonGLPI object
@@ -465,22 +471,37 @@ class Infocom extends CommonDBChild {
 
       foreach (Entity::getEntitiesToNotify('use_infocoms_alert') as $entity => $value) {
          $before    = Entity::getUsedConfig('send_infocoms_alert_before_delay', $entity);
-         $query_end = "SELECT `glpi_infocoms`.*
-                       FROM `glpi_infocoms`
-                       LEFT JOIN `glpi_alerts` ON (`glpi_infocoms`.`id` = `glpi_alerts`.`items_id`
-                                                   AND `glpi_alerts`.`itemtype` = 'Infocom'
-                                                   AND `glpi_alerts`.`type`='".Alert::END."')
-                       WHERE (`glpi_infocoms`.`alert` & ".pow(2, Alert::END).") >'0'
-                             AND `glpi_infocoms`.`entities_id`='".$entity."'
-                             AND `glpi_infocoms`.`warranty_duration`>'0'
-                             AND `glpi_infocoms`.`warranty_date` IS NOT NULL
-                             AND DATEDIFF(ADDDATE(`glpi_infocoms`.`warranty_date`,
-                                                  INTERVAL (`glpi_infocoms`.`warranty_duration`)
-                                                           MONTH),
-                                          CURDATE() ) <= '$before'
-                             AND `glpi_alerts`.`date` IS NULL";
+         $table = self::getTable();
+         $iterator = $DB->request([
+            'SELECT'    => "$table.*",
+            'FROM'      => $table,
+            'LEF JOIN'  => [
+               'glpi_alerts'  => [
+                  'ON' => [
+                     'glpi_alerts'  => 'items_id',
+                     $table         => 'id', [
+                        'AND' => [
+                           'glpi_alerts.itemtype'  => self::getType(),
+                           'glpi_alerts.type'      => Alert::END
+                        ]
+                     ]
+                  ]
+               ]
+            ],
+            'WHERE'     => [
+               "$table.entities_id"       => $entity,
+               "$table.warranty_duration" => ['>', 0],
+               'NOT'                      => ["$table.warranty_date" => null],
+               new \QueryExpression(
+                  'DATEDIFF(ADDDATE(' . $DB->quoteName('glpi_infocoms.warranty_date') . ', INTERVAL (' .
+                  $DB->quoteName('glpi_infocoms.warranty_duration') . ') MONTH), CURDATE() ) <= ' .
+                  $DB->quoteValue($before)
+               ),
+               'glpi_alerts.date'         => null
+            ]
+         ]);
 
-         foreach ($DB->request($query_end) as $data) {
+         while ($data = $iterator->next()) {
             if ($item_infocom = getItemForItemtype($data["itemtype"])) {
                if ($item_infocom->getFromDB($data["items_id"])) {
                   $entity   = $data['entities_id'];
@@ -1890,7 +1911,7 @@ class Infocom extends CommonDBChild {
       $ic = new self();
       if ($ic->getFromDBforDevice($itemtype, $oldid)) {
          $input             = $ic->fields;
-         $input             = Toolbox::addslashes_deep($input);
+         $input             = $input;
          $input['items_id'] = $newid;
          if (!empty($newitemtype)) {
             $input['itemtype'] = $newitemtype;
@@ -2047,7 +2068,8 @@ class Infocom extends CommonDBChild {
       global $DB;
 
       $types_iterator = $DB->request([
-         'SELECT DISTINCT' => 'itemtype',
+         'SELECT'          => 'itemtype',
+         'DISTINCT'        => true,
          'FROM'            => 'glpi_infocoms',
          'WHERE'           => [
             'NOT'          => ['itemtype' => self::getExcludedTypes()]
@@ -2068,4 +2090,118 @@ class Infocom extends CommonDBChild {
    public static function getExcludedTypes() {
       return ['ConsumableItem', 'CartridgeItem', 'Software'];
    }
+
+   /**
+    * Get display type for sub item
+    *
+    * @since 10.0.0
+    *
+    * @return integer
+    */
+   public function getSubItemDisplay() {
+      return self::SUBITEM_SHOW_FORM;
+   }
+
+   /**
+    * Form fields configuration and mapping.
+    *
+    * Array order will define fields display order.
+    *
+    * Missing fields from database will be automatically displayed.
+    * If you want to avoid this;
+    * @see getFormHiddenFields and/or @see getFormFieldsToDrop
+    *
+    * @since 10.0.0
+    *
+    * @return array
+    */
+   protected function getFormFields() {
+      $fields = [
+         'order_date'   => [
+            'label'  => __('Order date')
+         ],
+         'buy_date'     => [
+            'label'  => __('Buy date')
+         ],
+         'delivery_date'   => [
+            'label'  => __('Delivery date')
+         ],
+         'use_date'     => [
+            'label'  => __('Startup date')
+         ],
+         'inventory_date'  => [
+            'label'  => __('Date of last physical inventory')
+         ],
+         'decommission_date'  => [
+            'label'  => __('Decommission date')
+         ],
+         'suppliers_id' => [
+            'label'  => __('Supplier')
+         ],
+         'budgets_id'   => [
+            'label'  => __('Budget')
+         ],
+         'order_number' => [
+            'label'  => __('Order number')
+         ],
+         'immo_number'  => [
+            'label'  => __('Immobilization number')
+         ],
+         'bill'         => [
+            'label'  => __('Invoice number')
+         ],
+         'delivery_number' => [
+            'label'=> __('Delivery number')
+         ],
+         'value'     => [
+            'label'  => __('Value')
+         ],
+         'warranty_value'  => [
+            'label'  => __('Warranty extension value')
+         ],
+         // account net value
+         'sink_type'    => [
+            'label'  => __('Amortization type')
+         ],
+         'sink_time'    => [
+            'label'  => __('Amortization duration')
+         ],
+         'sink_coeff'   => [
+            'label'  => __('Amortization coefficient')
+         ],
+         //TCO (value + tracking cost)
+         //Monthly TCO
+         'businesscriticities_id'   => [
+            'label'  => __('Business criticity')
+         ],
+         'warranty_date'   => [
+            'label'  => __('Start date of warranty')
+         ],
+         'warranty_duration'  => [
+            'label'  => __('Warranty duration')
+         ],
+         'warranty_info'   => [
+            'label'  => __('Warranty information')
+         ]
+      ] + parent::getFormFields();
+      return $fields;
+   }
+
+   /**
+    * Get field to be dropped building form
+    *
+    * @since 10.0.0
+    *
+    * @param boolean $add Add or update
+    *
+    * @return array
+    */
+   protected function getFormFieldsToDrop($add = false) {
+      $fields = array_merge(
+         ['alert'],
+         parent::getFormFieldsToDrop($add)
+      );
+      return $fields;
+   }
+
 }

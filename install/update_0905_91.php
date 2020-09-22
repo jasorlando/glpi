@@ -78,7 +78,7 @@ function update0905to91() {
                  `date_mod` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Timestamp of the lock',
                  PRIMARY KEY (`id`),
                  UNIQUE INDEX `item` (`itemtype`, `items_id`)
-               ) ENGINE=MyISAM DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci";
+               ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci";
       $DB->queryOrDie($query, "9.1 add table glpi_objectlocks");
 
       // insert new profile (read only access for locks)
@@ -95,7 +95,7 @@ function update0905to91() {
                         '{\"1\":{\"9\":0,\"10\":0,\"7\":0,\"4\":0,\"11\":0,\"12\":0,\"5\":0,\"8\":0,\"6\":0},\"9\":{\"1\":0,\"10\":0,\"7\":0,\"4\":0,\"11\":0,\"12\":0,\"5\":0,\"8\":0,\"6\":0},\"10\":{\"1\":0,\"9\":0,\"7\":0,\"4\":0,\"11\":0,\"12\":0,\"5\":0,\"8\":0,\"6\":0},\"7\":{\"1\":0,\"9\":0,\"10\":0,\"4\":0,\"11\":0,\"12\":0,\"5\":0,\"8\":0,\"6\":0},\"4\":{\"1\":0,\"9\":0,\"10\":0,\"7\":0,\"11\":0,\"12\":0,\"5\":0,\"8\":0,\"6\":0},\"11\":{\"1\":0,\"9\":0,\"10\":0,\"7\":0,\"4\":0,\"12\":0,\"5\":0,\"8\":0,\"6\":0},\"12\":{\"1\":0,\"9\":0,\"10\":0,\"7\":0,\"4\":0,\"11\":0,\"5\":0,\"8\":0,\"6\":0},\"5\":{\"1\":0,\"9\":0,\"10\":0,\"7\":0,\"4\":0,\"11\":0,\"12\":0,\"8\":0,\"6\":0},\"8\":{\"1\":0,\"9\":0,\"10\":0,\"7\":0,\"4\":0,\"11\":0,\"12\":0,\"5\":0,\"6\":0},\"6\":{\"1\":0,\"9\":0,\"10\":0,\"7\":0,\"4\":0,\"11\":0,\"12\":0,\"5\":0,\"8\":0}}')";
 
       $DB->queryOrDie($query, "9.1 update profile with Unlock profile");
-      $ro_p_id = $DB->insert_id();
+      $ro_p_id = $DB->insertId();
       $DB->queryOrDie("INSERT INTO `glpi_profilerights`
                               (`profiles_id`, `name`, `rights`)
                        VALUES ($ro_p_id, 'backup',                    '1'),
@@ -171,13 +171,14 @@ function update0905to91() {
                               ($ro_p_id, 'user',                      '2177')");
 
       // updates rights for Super-Admin profile
+      $rightnames = [];
       foreach ($CFG_GLPI['lock_lockable_objects'] as $itemtype) {
          $rightnames[] = $itemtype::$rightname;
       }
 
       $DB->updateOrDie("glpi_profilerights", [
             'rights' => new \QueryExpression(
-               DBmysql::quoteName("rights") . " | " . DBmysql::quoteValue(UNLOCK)
+               $DB->quoteName("rights") . " | " . $DB->quoteValue(UNLOCK)
             )
          ], [
             'profiles_id'  => 4,
@@ -228,7 +229,7 @@ function update0905to91() {
          ],
          "9.1 Add unlock request notification template"
       );
-      $notid = $DB->insert_id();
+      $notid = $DB->insertId();
 
       $contentText =
          '##objectlock.type## ###objectlock.id## - ##objectlock.name##
@@ -285,7 +286,7 @@ function update0905to91() {
          ],
          "9.1 add Unlock Request notification"
       );
-      $notifid = $DB->insert_id();
+      $notifid = $DB->insertId();
 
       $DB->insertOrDie("glpi_notificationtargets", [
             'id'                 => null,
@@ -319,7 +320,7 @@ function update0905to91() {
                   KEY `netpoint` (`netpoints_id`),
                   KEY `wwn` (`wwn`),
                   KEY `speed` (`speed`)
-                ) ENGINE=MyISAM DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;";
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;";
       $DB->query($query);
    }
 
@@ -341,7 +342,7 @@ function update0905to91() {
                   KEY `name` (`name`),
                   KEY `date_mod` (`date_mod`),
                   KEY `date_creation` (`date_creation`)
-                ) ENGINE=MyISAM DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;";
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;";
       $DB->queryOrDie($query, "9.1 add table glpi_operatingsystemarchitectures");
    }
 
@@ -361,7 +362,7 @@ function update0905to91() {
                   KEY `is_recursive` (`is_recursive`),
                   KEY `taskcategories_id` (`taskcategories_id`),
                   KEY `entities_id` (`entities_id`)
-                ) ENGINE=MyISAM DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;";
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;";
       $DB->queryOrDie($query, "9.1 add table glpi_tasktemplates");
    }
 
@@ -384,7 +385,7 @@ function update0905to91() {
                   KEY `name` (`name`),
                   KEY `date_mod` (`date_mod`),
                   KEY `date_creation` (`date_creation`)
-                ) ENGINE=MyISAM DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;";
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;";
       $DB->queryOrDie($query, "add table glpi_budgettypes");
    }
 
@@ -428,7 +429,7 @@ function update0905to91() {
                   PRIMARY KEY (`id`),
                   KEY `date_mod` (`date_mod`),
                   KEY `is_active` (`is_active`)
-                ) ENGINE=MyISAM DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;";
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;";
       $DB->queryOrDie($query, "9.1 add table glpi_apiclients");
 
       $DB->insertOrDie("glpi_apiclients", [
@@ -672,7 +673,7 @@ function update0905to91() {
                   KEY `date_expiration` (`date_expiration`),
                   KEY `date_mod` (`date_mod`),
                   KEY `date_creation` (`date_creation`)
-                ) ENGINE=MyISAM  DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci AUTO_INCREMENT=1;";
+                ) ENGINE=InnoDB  DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci AUTO_INCREMENT=1;";
       $DB->queryOrDie($query, "Add antivirus table");
    }
 
@@ -695,7 +696,7 @@ function update0905to91() {
    foreach ($DB->request("glpi_profilerights", "`name` = 'ticket'") as $profrights) {
       $DB->updateOrDie("glpi_profilerights", [
             'rights' => new \QueryExpression(
-               DBmysql::quoteName("rights") . " | " . DBmysql::quoteValue(Ticket::SURVEY)
+               $DB->quoteName("rights") . " | " . $DB->quoteValue(Ticket::SURVEY)
             )
          ], [
             'profiles_id'  => $profrights['profiles_id'],
@@ -712,57 +713,6 @@ function update0905to91() {
    $migration->displayMessage(sprintf(__('Data migration - %s'), 'glpi_displaypreferences'));
 
    $ADDTODISPLAYPREF['SoftwareLicense'] = [3, 10, 162, 5];
-   foreach ($ADDTODISPLAYPREF as $type => $tab) {
-      $displaypreferencesIterator = $DB->request([
-         'SELECT DISTINCT' => "users_id",
-         'FROM'            => "glpi_displaypreferences",
-         'WHERE'           => ['itemtype' => $type]
-      ]);
-
-      if (count($displaypreferencesIterator)) {
-         while ($data = $displaypreferencesIterator->next()) {
-            $rank = $DB->request([
-               'SELECT DISTINCT' => ['MAX' => "rank AS max_rank"],
-               'FROM'            => "glpi_displaypreferences",
-               'WHERE'           => [
-                  'users_id' => $data['users_id'],
-                  'itemtype' => $type
-               ]
-            ])->next();
-            $rank = $rank ? $rank['max_rank']++ : 1;
-
-            foreach ($tab as $newval) {
-               $iterator = $DB->request([
-                  'FROM' => "glpi_displaypreferences",
-                  'WHERE' => [
-                     'users_id'  => $data['users_id'],
-                     'num'       => $newval,
-                     'itemtype'  => $type
-                  ],
-               ]);
-               if (count($iterator) == 0) {
-                  $DB->insert("glpi_displaypreferences", [
-                     'itemtype'  => $type,
-                     'num'       => $newval,
-                     'rank'      => $rank++,
-                     'users_id'  => $data['users_id'],
-                  ]);
-               }
-            }
-         }
-
-      } else { // Add for default user
-         $rank = 1;
-         foreach ($tab as $newval) {
-            $DB->insert("glpi_displaypreferences", [
-               'itemtype'  => $type,
-               'num'       => $newval,
-               'rank'      => $rank++,
-               'users_id'  => 0,
-            ]);
-         }
-      }
-   }
 
    /** ************ New SLA structure ************ */
    if (!$DB->tableExists('glpi_slts')) {
@@ -786,7 +736,7 @@ function update0905to91() {
                   KEY `date_mod` (`date_mod`),
                   KEY `date_creation` (`date_creation`),
                   KEY `slas_id` (`slas_id`)
-                ) ENGINE=MyISAM DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;";
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_unicode_ci;";
       $DB->queryOrDie($query, "9.1 add table glpi_slts");
 
       // Sla migration
@@ -795,11 +745,11 @@ function update0905to91() {
          while ($data = $slasIterator->next()) {
             $DB->insertOrDie("glpi_slts", [
                   'id'                 => $data['id'],
-                  'name'               => Toolbox::addslashes_deep($data['name']),
+                  'name'               => $data['name'],
                   'entities_id'        => $data['entities_id'],
                   'is_recursive'       => $data['is_recursive'],
                   'type'               => SLM::TTR,
-                  'comment'            => addslashes($data['comment']),
+                  'comment'            => $data['comment'],
                   'number_time'        => $data['resolution_time'],
                   'date_mod'           => $data['date_mod'],
                   'definition_time'    => $data['definition_time'],
@@ -937,6 +887,8 @@ function update0905to91() {
    );
 
    // ************ Keep it at the end **************
+   $migration->updateDisplayPrefs($ADDTODISPLAYPREF);
+
    $migration->executeMigration();
 
    return $updateresult;

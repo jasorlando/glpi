@@ -36,10 +36,8 @@ if (!defined('GLPI_ROOT')) {
    die("Sorry. You can't access this file directly");
 }
 
-use DB;
 use Glpi\Console\AbstractCommand;
 
-use Symfony\Component\Console\Helper\QuestionHelper;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ConfirmationQuestion;
@@ -80,7 +78,7 @@ class MyIsamToInnoDbCommand extends AbstractCommand {
 
       if (!$no_interaction) {
          // Ask for confirmation (unless --no-interaction)
-         /** @var QuestionHelper $question_helper */
+         /** @var \Symfony\Component\Console\Helper\QuestionHelper $question_helper */
          $question_helper = $this->getHelper('question');
          $run = $question_helper->ask(
             $input,
@@ -97,7 +95,7 @@ class MyIsamToInnoDbCommand extends AbstractCommand {
       }
 
       while ($table = $myisam_tables->next()) {
-         $table_name = DB::quoteName($table['TABLE_NAME']);
+         $table_name = $this->db->quoteName($table['TABLE_NAME']);
          $output->writeln(
             '<comment>' . sprintf(__('Migrating table "%s"...'), $table_name) . '</comment>',
             OutputInterface::VERBOSITY_VERBOSE

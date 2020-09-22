@@ -127,7 +127,7 @@ class Auth extends CommonGLPI {
    /**
     * Check user existence in DB
     *
-    * @var DBmysql $DB
+    * @var \Glpi\AbstractDatabase $DB
     *
     * @param array $options conditions : array('name'=>'glpi')
     *                                    or array('email' => 'test at test.com')
@@ -326,7 +326,7 @@ class Auth extends CommonGLPI {
     * If not found or can't connect to DB updates the instance variable err
     * with an eventual error message
     *
-    * @var DBmysql $DB
+    * @var \Glpi\AbstractDatabase $DB
     * @param string $name     User Login
     * @param string $password User Password
     *
@@ -633,7 +633,7 @@ class Auth extends CommonGLPI {
             // Used for log when login process failed
             $login_name                        = $this->user->fields['name'];
             $this->auth_succeded               = true;
-            $this->user_present                = $this->user->getFromDBbyName(addslashes($login_name));
+            $this->user_present                = $this->user->getFromDBbyName($login_name);
             $this->extauth                     = 1;
             $user_dn                           = false;
 
@@ -741,7 +741,7 @@ class Auth extends CommonGLPI {
             // Try connect local user if not yet authenticated
             if (empty($login_auth)
                   || $this->user->fields["authtype"] == $this::DB_GLPI) {
-               $this->auth_succeded = $this->connection_db(addslashes($login_name),
+               $this->auth_succeded = $this->connection_db($login_name,
                                                            $login_password);
             }
 
@@ -757,7 +757,7 @@ class Auth extends CommonGLPI {
                                              $this->user->fields["auths_id"]);
                      if (!$this->auth_succeded && $this->user_deleted_ldap) {
                         $search_params = [
-                           'name'     => addslashes($login_name),
+                           'name'     => $login_name,
                            'authtype' => $this::LDAP];
                         if (!empty($login_auth)) {
                            $search_params['auths_id'] = $this->user->fields["auths_id"];
@@ -807,11 +807,7 @@ class Auth extends CommonGLPI {
             }
          } else {
             if ($this->user_present) {
-               // First stripslashes to avoid double slashes
-               $input = Toolbox::stripslashes_deep($this->user->fields);
-               // Then ensure addslashes
-               $input = Toolbox::addslashes_deep($input);
-
+               $input = $this->user->fields;
                // Add the user e-mail if present
                if (isset($email)) {
                    $this->user->fields['_useremails'] = $email;
@@ -819,10 +815,7 @@ class Auth extends CommonGLPI {
                $this->user->update($input);
             } else if ($CFG_GLPI["is_users_auto_add"]) {
                // Auto add user
-               // First stripslashes to avoid double slashes
-               $input = Toolbox::stripslashes_deep($this->user->fields);
-               // Then ensure addslashes
-               $input = Toolbox::addslashes_deep($input);
+               $input = $this->user->fields;
                unset ($this->user->fields);
                $this->user->add($input);
             } else {

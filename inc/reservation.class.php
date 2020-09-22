@@ -355,12 +355,15 @@ class Reservation extends CommonDBChild {
       global $DB;
 
       if (isset($this->input['_delete_group']) && $this->input['_delete_group']) {
-         $query = "SELECT *
-                   FROM `glpi_reservations`
-                   WHERE `reservationitems_id` = '".$this->fields['reservationitems_id']."'
-                         AND `group` = '".$this->fields['group']."' ";
+         $iterator = $DB->request([
+            'FROM'   => 'glpi_reservations',
+            'WHERE'  => [
+               'reservationitems_id'   => $this->fields['reservationitems_id'],
+               'group'                 => $this->fields['group']
+            ]
+         ]);
          $rr = clone $this;
-         foreach ($DB->request($query) as $data) {
+         while ($data = $iterator->next()) {
             $rr->delete(['id' => $data['id']]);
          }
       }
@@ -916,7 +919,8 @@ class Reservation extends CommonDBChild {
          $fin   = $date." 23:59:59";
 
          $iterator = $DB->request([
-            'SELECT DISTINCT' => 'glpi_reservationitems.id',
+            'SELECT'          => 'glpi_reservationitems.id',
+            'DISTINCT'        => true,
             'FROM'            => 'glpi_reservationitems',
             'INNER JOIN'      => [
                'glpi_reservations'  => [

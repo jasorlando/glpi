@@ -280,14 +280,7 @@ class Dropdown {
     * @return string
     */
    static function addNewCondition($condition) {
-      if (!is_array($condition)) {
-         Toolbox::deprecated('Using a string in dropdown condition is deprecated.');
-         $condition = Toolbox::cleanNewLines($condition);
-         $sha1 = sha1($condition);
-      } else {
-         $sha1 = sha1(serialize($condition));
-      }
-
+      $sha1 = sha1(serialize($condition));
       $_SESSION['glpicondition'][$sha1] = $condition;
       return $sha1;
    }
@@ -610,7 +603,8 @@ class Dropdown {
       }
 
       $iterator = $DB->request([
-         'SELECT DISTINCT' => $p['field'],
+         'SELECT'          => $p['field'],
+         'DISTINCT'        => true,
          'FROM'            => getTableForItemType($itemtype_ref)
       ]);
 
@@ -1218,12 +1212,28 @@ class Dropdown {
          unset($options['display_emptychoice']);
       }
 
+      $values = array_merge($values, self::getLanguages());
+      return self::showFromArray($myname, $values, $options);
+   }
+
+   /**
+    * Get available languages
+    *
+    * @since 10.0.0
+    *
+    * @return array
+    */
+   public static function getLanguages() {
+      global $CFG_GLPI;
+
+      $languages = [];
       foreach ($CFG_GLPI["languages"] as $key => $val) {
          if (isset($val[1]) && is_file(GLPI_ROOT ."/locales/".$val[1])) {
-            $values[$key] = $val[0];
+            $languages[$key] = $val[0];
          }
       }
-      return self::showFromArray($myname, $values, $options);
+
+      return $languages;
    }
 
 
@@ -1871,7 +1881,7 @@ class Dropdown {
          $output .= implode('<br>', $to_display);
       } else {
 
-         $output  .= "<select name='$field_name' id='$field_id'";
+         $output  .= "<select name='$field_name' id='$field_id' class='forSelect2'";
 
          if ($param['tooltip']) {
             $output .= ' title="'.Html::entities_deep($param['tooltip']).'"';
@@ -2101,13 +2111,12 @@ class Dropdown {
     *
     * This import a new dropdown if it doesn't exist - Play dictionnary if needed
     *
-    * @param $itemtype        string   name of the class
-    * @param $value           string   Value of the new dropdown. (need to be addslashes)
-    * @param $entities_id     integer  entity in case of specific dropdown (default -1)
-    * @param $external_params array    (need to be addslashes)
-    * @param $comment                  (default '') (need to be addslashes)
-    * @param $add                      if true, add it if not found. if false, just check if exists
-    *                                  (true by default)
+    * @param string  $itemtype         name of the class
+    * @param string  $value            Value of the new dropdown.
+    * @param integer entities_id       entity in case of specific dropdown
+    * @param array   $external_params
+    * @param string  $comment
+    * @param boolean $add              if true, add it if not found. if false, just check if exists
     *
     * @return integer : dropdown id.
    **/
@@ -2249,6 +2258,7 @@ class Dropdown {
       }
       $table = $item->getTable();
       $datas = [];
+      $search_inst = new Search($item, []);
 
       $displaywith = false;
       if (isset($post['displaywith'])) {
@@ -2336,7 +2346,7 @@ class Dropdown {
             $where["$table.id"] = $one_item;
          } else {
             if (!empty($post['searchText'])) {
-               $search = Search::makeTextSearchValue($post['searchText']);
+               $search = $search_inst->makeTextSearchValue($post['searchText']);
 
                $swhere = [
                   "$table.completename" => ['LIKE', $search],
@@ -2488,7 +2498,7 @@ class Dropdown {
             if (count($toadd)) {
                foreach ($toadd as $key => $val) {
                   array_push($datas, ['id'   => $key,
-                                    'text' => stripslashes($val)]);
+                                    'text' => $val]);
                }
             }
          }
@@ -2692,7 +2702,7 @@ class Dropdown {
          }
 
          if (!empty($post['searchText'])) {
-            $search = Search::makeTextSearchValue($post['searchText']);
+            $search = $search_inst->makeTextSearchValue($post['searchText']);
             $orwhere = ["$table.$field" => ['LIKE', $search]];
 
             if (Session::haveTranslations($post['itemtype'], $field)) {
@@ -2777,7 +2787,8 @@ class Dropdown {
 
             case "Profile" :
                $criteria = [
-                  'SELECT DISTINCT' => "$table.*",
+                  'SELECT'          => "$table.*",
+                  'DISTINCT'        => true,
                   'FROM'            => $table,
                   'LEFT JOIN'       => [
                      'glpi_profilerights' => [
@@ -2792,8 +2803,11 @@ class Dropdown {
 
             case KnowbaseItem::getType():
                $criteria = [
-                  'SELECT DISTINCT' => "$table.*",
-                  'FIELDS'          => $addselect,
+                  'SELECT'          => [
+                     "$table.*",
+                     $addselect
+                  ],
+                  'DISTINCT'        => true,
                   'FROM'            => $table
                ];
                if (count($ljoin)) {
@@ -2860,7 +2874,7 @@ class Dropdown {
             if (count($toadd)) {
                foreach ($toadd as $key => $val) {
                   array_push($datas, ['id'    => $key,
-                                    'text'  => stripslashes($val)]);
+                                    'text'  => $val]);
                }
             }
          }
@@ -2998,7 +3012,8 @@ class Dropdown {
       }
 
       if (isset($post['searchText']) && (strlen($post['searchText']) > 0)) {
-         $search = Search::makeTextSearchValue($post['searchText']);
+         $search_inst = new Search($item, []);
+         $search = $search_inst->makeTextSearchValue($post['searchText']);
          $where['OR'] = [
             "$table.name"        => ['LIKE', $search],
             "$table.otherserial" => ['LIKE', $search],
@@ -3057,13 +3072,14 @@ class Dropdown {
       }
 
       $criteria = [
-         'SELECT DISTINCT' => "$table.id",
-         'FIELDS'          => [
+         'SELECT'          => [
+            "$table.id",
             "$table.name AS name",
             "$table.serial AS serial",
             "$table.otherserial AS otherserial",
             "$table.entities_id AS entities_id"
          ],
+         'DISTINCT'        => true,
          'FROM'            => $table,
          'WHERE'           => $where,
          'ORDERBY'         => ['entities_id', 'name ASC'],
@@ -3189,7 +3205,8 @@ class Dropdown {
       }
 
       if (isset($_POST['searchText']) && (strlen($post['searchText']) > 0)) {
-         $search = ['LIKE', Search::makeTextSearchValue($post['searchText'])];
+         $search_inst = new Search($item, []);
+         $search = ['LIKE', $search_inst->makeTextSearchValue($post['searchText'])];
          $orwhere =[
             'name'   => $search,
             'id'     => $post['searchText']
@@ -3344,9 +3361,11 @@ class Dropdown {
       }
 
       if (isset($post['searchText']) && strlen($post['searchText']) > 0) {
+         $search_inst = new Search(new Netpoint(), []);
+         $search = ['LIKE', $search_inst->makeTextSearchValue($post['searchText'])];
          $criteria['WHERE']['OR'] = [
-            'glpi_netpoints.name'         => ['LIKE', Search::makeTextSearchValue($post['searchText'])],
-            'glpi_locations.completename' => ['LIKE', Search::makeTextSearchValue($post['searchText'])]
+            'glpi_netpoints.name'         => ['LIKE', $search],
+            'glpi_locations.completename' => ['LIKE', $search]
          ];
       }
 
@@ -3472,7 +3491,7 @@ class Dropdown {
          if (count($toadd)) {
             foreach ($toadd as $key => $val) {
                array_push($data, ['id'   => $key,
-                                 'text' => strval(stripslashes($val))]);
+                                 'text' => strval($val)]);
             }
          }
       }
@@ -3526,7 +3545,7 @@ class Dropdown {
                $txt = Dropdown::getValueWithUnit($value, $post['unit']);
             }
             array_push($data, ['id'   => $value,
-                              'text' => strval(stripslashes($txt))]);
+                              'text' => strval($txt)]);
             $count++;
          }
       }

@@ -293,12 +293,14 @@ class NetworkPortMigration extends CommonDBChild {
       echo "<$gateway_cell>" . $this->fields['gateway'] . "</$gateway_cell></tr>\n";
 
       echo "<tr class='tab_bg_1'><td>". __('Network interface') ."</td><$interface_cell>\n";
-      $query = "SELECT `name`
-                FROM `glpi_networkinterfaces`
-                WHERE `id`='".$this->fields['networkinterfaces_id']."'";
+      $iterator = $DB->request([
+         'SELECT' => 'name',
+         'FROM'   => 'glpi_networkinterfaces',
+         'WHERE'  => ['id' => $this->fields['networkinterfaces_id']]
+      ]);
       $result = $DB->query($query);
-      if ($DB->numrows($result) > 0) {
-         $row = $DB->fetch_assoc($result);
+      if (count($iterator)) {
+         $row = $iterator->next();
          echo $row['name'];
       } else {
          echo __('Unknown interface');

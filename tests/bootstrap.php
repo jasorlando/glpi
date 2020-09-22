@@ -43,16 +43,14 @@ define('GLPI_ROOT', __DIR__ . '/../');
 is_dir(GLPI_LOG_DIR) or mkdir(GLPI_LOG_DIR, 0755, true);
 is_dir(GLPI_CACHE_DIR) or mkdir(GLPI_CACHE_DIR, 0755, true);
 
-if (!file_exists(GLPI_CONFIG_DIR . '/config_db.php')) {
+if (!file_exists(GLPI_CONFIG_DIR . '/db.yaml')) {
    die("\nConfiguration file for tests not found\n\nrun: bin/console glpi:database:install --config-dir=./tests ...\n\n");
 }
-global $CFG_GLPI, $GLPI_CACHE;
+global $CFG_GLPI, $IS_TWIG;
+$IS_TWIG = false;
 
 include_once (GLPI_ROOT . "/inc/define.php");
 include __DIR__ . '/../inc/autoload.function.php';
-
-//init cache
-$GLPI_CACHE = Config::getCache('cache_db');
 
 include_once __DIR__ . '/../inc/includes.php';
 include_once __DIR__ . '/GLPITestCase.php';
@@ -83,7 +81,7 @@ function loadDataset() {
    // Unit test data definition
    $data = [
       // bump this version to force reload of the full dataset, when content change
-      '_version' => '4.3',
+      '_version' => '4.4',
 
       // Type => array of entries
       'Entity' => [
@@ -487,6 +485,14 @@ function loadDataset() {
             'group_search_type'  => \AuthLdap::GROUP_SEARCH_GROUP,
             'group_condition' => '(objectclass=groupOfNames)',
             'group_member_field' => 'member'
+         ]
+      ], 'Holiday'   => [
+         [
+            'name'         => 'X-Mas',
+            'entities_id'  => '_test_root_entity',
+            'is_recursive' => 1,
+            'begin_date'   => '2018-12-29',
+            'end_date'     => '2019-01-06'
          ]
       ]
 

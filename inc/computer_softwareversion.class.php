@@ -898,7 +898,7 @@ class Computer_SoftwareVersion extends CommonDBRelation {
                      [
                         'AND' => [
                            'glpi_softwarelicenses.softwareversions_id_use' => 0,
-                           'glpi_softwarelicenses.softwareversions_id_buy' => new \QueryExpression(DBmysql::quoteName('glpi_softwareversions.id')),
+                           'glpi_softwarelicenses.softwareversions_id_buy' => new \QueryExpression($DB->quoteName('glpi_softwareversions.id')),
                         ]
                      ]
                   ]
@@ -1193,13 +1193,15 @@ class Computer_SoftwareVersion extends CommonDBRelation {
    }
 
 
+   //TODO: remove with old UI
    function getTabNameForItem(CommonGLPI $item, $withtemplate = 0) {
+      global $IS_TWIG;
 
       $nb = 0;
       switch ($item->getType()) {
          case 'Software' :
             if (!$withtemplate) {
-               if ($_SESSION['glpishow_count_on_tabs']) {
+               if ($_SESSION['glpishow_count_on_tabs'] && !$IS_TWIG) {
                   $nb = self::countForSoftware($item->getID());
                }
                return self::createTabEntry(self::getTypeName(Session::getPluralNumber()), $nb);
@@ -1208,7 +1210,7 @@ class Computer_SoftwareVersion extends CommonDBRelation {
 
          case 'SoftwareVersion' :
             if (!$withtemplate) {
-               if ($_SESSION['glpishow_count_on_tabs']) {
+               if ($_SESSION['glpishow_count_on_tabs'] && !$IS_TWIG) {
                   $nb = self::countForVersion($item->getID());
                }
                return [1 => __('Summary'),
@@ -1220,7 +1222,7 @@ class Computer_SoftwareVersion extends CommonDBRelation {
          case 'Computer' :
             // Installation allowed for template
             if (Software::canView()) {
-               if ($_SESSION['glpishow_count_on_tabs']) {
+               if ($_SESSION['glpishow_count_on_tabs'] && !$IS_TWIG) {
                   $nb = self::countForItem($item);
                }
                return self::createTabEntry(Software::getTypeName(Session::getPluralNumber()), $nb);
@@ -1230,6 +1232,16 @@ class Computer_SoftwareVersion extends CommonDBRelation {
       return '';
    }
 
+   protected function countForTab($item, $tab, $deleted = 0, $template = 0) {
+      switch ($item->getType()) {
+         case 'Software' :
+            return self::countForSoftware($item->getID());
+         case 'SoftwareVersion' :
+            return self::countForVersion($item->getID());
+         case 'Computer' :
+            return self::countForItem($item);
+      }
+   }
 
    static function displayTabContentForItem(CommonGLPI $item, $tabnum = 1, $withtemplate = 0) {
 

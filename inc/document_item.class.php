@@ -218,11 +218,9 @@ class Document_Item extends CommonDBRelation{
          $doc->getFromDB($this->fields['documents_id']);
          if (!empty($doc->fields['tag'])) {
             $ticket->getFromDB($this->fields['items_id']);
-            $input['content'] = Toolbox::addslashes_deep(
-               Toolbox::cleanTagOrImage(
-                  $ticket->fields['content'],
-                  [$doc->fields['tag']]
-               )
+            $input['content'] = Toolbox::cleanTagOrImage(
+               $ticket->fields['content'],
+               [$doc->fields['tag']]
             );
          }
 
@@ -232,13 +230,15 @@ class Document_Item extends CommonDBRelation{
    }
 
 
+   //TODO: remove with old UI
    function getTabNameForItem(CommonGLPI $item, $withtemplate = 0) {
+      global $IS_TWIG;
 
       $nbdoc = $nbitem = 0;
       switch ($item->getType()) {
          case 'Document' :
             $ong = [];
-            if ($_SESSION['glpishow_count_on_tabs'] && !$item->isNewItem()) {
+            if ($_SESSION['glpishow_count_on_tabs'] && !$item->isNewItem() && !$IS_TWIG) {
                $nbdoc  = self::countForMainItem($item, ['NOT' => ['itemtype' => 'Document']]);
                $nbitem = self::countForMainItem($item, ['itemtype' => 'Document']);
             }
@@ -255,7 +255,7 @@ class Document_Item extends CommonDBRelation{
                 || ($item->getType() == 'Reminder')
                 || ($item->getType() == 'KnowbaseItem')) {
 
-               if ($_SESSION['glpishow_count_on_tabs']) {
+               if ($_SESSION['glpishow_count_on_tabs'] && !$IS_TWIG) {
                   $nbitem = self::countForItem($item);
                }
                return self::createTabEntry(Document::getTypeName(Session::getPluralNumber()),
@@ -265,6 +265,17 @@ class Document_Item extends CommonDBRelation{
       return '';
    }
 
+   protected function countForTab($item, $tab, $deleted = 0, $template = 0) {
+      if ($item->getType() == Document::getType()) {
+         switch ($tab) {
+            case self::getType() . '__1':
+               return self::countForMainItem($item, ['NOT' => ['itemtype' => 'Document']]);
+            case self::getType() . '__2':
+               return self::countForMainItem($item, ['itemtype' => 'Document']);
+         }
+      }
+      return self::countForItem($item);
+   }
 
    static function displayTabContentForItem(CommonGLPI $item, $tabnum = 1, $withtemplate = 0) {
 
